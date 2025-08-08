@@ -2,10 +2,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { Snippet, ConsoleMessage, EditorSettings, ActiveFile } from "@/types";
-import { Code, Play, FileCode, Cloud, CloudOff, Plus, X } from "lucide-react";
+import { Code, Play, FileCode, Cloud, CloudUpload, Plus, X } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
@@ -105,10 +104,12 @@ export default function Home() {
 
   const activeFile = activeFiles.find(f => f.id === activeFileId) || activeFiles[0];
   const code = activeFile?.code ?? '';
-  const debouncedCode = useDebounce(code, 500);
 
   const saveStateToFirebase = useCallback(() => {
-    if (!userId || !isDataLoaded) return;
+    if (!userId) {
+      toast({ title: "Cannot Save", description: "User ID not found. Cannot sync to cloud.", variant: 'destructive'});
+      return;
+    };
 
     isLocalUpdateRef.current = true;
     setIsFirebaseSynced(false);
@@ -124,7 +125,7 @@ export default function Home() {
     set(userRef, dataToSync)
       .then(() => {
         setIsFirebaseSynced(true);
-        toast({ title: "Synced!", description: "Your changes have been saved to the cloud." });
+        toast({ title: "Saved to Cloud!", description: "Your workspace has been saved." });
       })
       .catch(error => {
           console.error("Firebase write failed: ", error);
@@ -135,12 +136,13 @@ export default function Home() {
               isLocalUpdateRef.current = false;
           }, 100); 
       });
-  }, [userId, activeFiles, snippets, settings, activeFileId, toast, isDataLoaded]);
+  }, [userId, activeFiles, snippets, settings, activeFileId, toast]);
 
   useEffect(() => {
     if (!userId || !isClient) return;
-
+  
     const userRef = ref(database, `users/${userId}`);
+  
     const loadInitialData = async () => {
       if (firebaseDataLoadedRef.current) return;
       firebaseDataLoadedRef.current = true;
@@ -155,9 +157,6 @@ export default function Home() {
           if (data.snippets) setSnippets(data.snippets);
           if (data.settings) setSettings(data.settings);
           toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
-        } else {
-           // New user or no data, push initial local state to Firebase
-           saveStateToFirebase();
         }
       } catch (error) {
         console.error("Firebase read failed:", error);
@@ -178,22 +177,23 @@ export default function Home() {
         return;
       }
       if (snapshot.exists()) {
-        console.log("Data updated from another source.");
         const data = snapshot.val();
+        isLocalUpdateRef.current = true; // Prevent listener from re-triggering on its own update
         if (data.activeFiles) setActiveFiles(data.activeFiles);
         if (data.activeFileId) setActiveFileId(data.activeFileId);
         if (data.snippets) setSnippets(data.snippets);
         if (data.settings) setSettings(data.settings);
         toast({ title: "Data Updated", description: "Your session has been updated from another source." });
+        setTimeout(() => { isLocalUpdateRef.current = false; }, 100);
       }
     });
 
     return () => unsubscribe();
-  }, [userId, isClient, setSettings, toast, saveStateToFirebase]);
+  }, [userId, isClient, setSettings, toast]);
 
 
   const setCode = (newCode: string) => {
-    setActiveFiles(files => files.map(f => f.id === activeFileId ? { ...f, code: newCode, isSaved: snippets.some(s => s.name === f.name && s.code === newCode) } : f));
+    setActiveFiles(files => files.map(f => f.id === activeFileId ? { ...f, code: newCode, isSaved: false } : f));
   };
 
   const clearMessages = useCallback(() => setMessages([]), []);
@@ -261,12 +261,6 @@ export default function Home() {
     };
   }, [addMessage]);
 
-  useEffect(() => {
-    if (settings.liveRun && debouncedCode && activeFile?.type === 'javascript') {
-      runCode();
-    }
-  }, [debouncedCode, settings.liveRun, runCode, activeFile]);
-
   const handleLint = useCallback((editorCode: string) => {
     if (activeFile?.type === 'javascript') {
         JSHINT(editorCode, { esversion: 6, asi: true, expr: true });
@@ -293,7 +287,6 @@ export default function Home() {
       if (activeFileId === defaultJsFileName || activeFileId === defaultHtmlFileName) {
         setActiveFileId(name);
       }
-      saveStateToFirebase();
     }
   };
   
@@ -315,7 +308,6 @@ export default function Home() {
       handleCloseTab(name);
     }
     toast({ title: "Snippet Deleted", description: `Snippet "${name}" has been deleted.`, variant: "destructive" });
-    // Note: This change won't be synced until the next save.
   };
   
   const handleCloseTab = (tabId: string) => {
@@ -397,7 +389,6 @@ export default function Home() {
       return;
     }
     
-    // Also update snippet name if it exists
     const snippetExists = snippets.some(s => s.name === fileToRename.name);
     if (snippetExists) {
         const newSnippets = snippets.map(s => s.name === fileToRename.name ? {...s, name: newFileName} : s);
@@ -408,7 +399,7 @@ export default function Home() {
     setActiveFileId(newFileName);
     setIsRenameDialogOpen(false);
     setFileToRename(null);
-    toast({ title: "File Renamed", description: `Renamed to "${newFileName}". Your changes will be synced on next save.`});
+    toast({ title: "File Renamed", description: `Renamed to "${newFileName}". Save to cloud to persist this change.`});
   };
 
   const openRenameDialog = (file: ActiveFile) => {
@@ -454,10 +445,13 @@ export default function Home() {
            <TooltipProvider>
              <Tooltip>
                 <TooltipTrigger>
-                    {isFirebaseSynced ? <Cloud className="h-5 w-5 text-green-500" /> : <CloudOff className="h-5 w-5 text-red-500" />}
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {isFirebaseSynced ? <Cloud className="h-5 w-5 text-green-500" /> : <Cloud className="h-5 w-5 text-yellow-500" />}
+                      <span>{isFirebaseSynced ? "Synced" : "Unsaved"}</span>
+                    </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                    {isFirebaseSynced ? "Your work is saved to the cloud." : "Could not connect to sync service."}
+                    {isFirebaseSynced ? "Your work is saved to the cloud." : "You have unsaved changes."}
                 </TooltipContent>
              </Tooltip>
            </TooltipProvider>
@@ -471,6 +465,10 @@ export default function Home() {
             onDeleteSnippet={handleDeleteSnippet}
             activeSnippetName={activeFile?.isSaved ? activeFile.name : undefined}
           />
+          <Button onClick={saveStateToFirebase}>
+            <CloudUpload className="mr-2 h-4 w-4" />
+            Save to Cloud
+          </Button>
           <Button onClick={runCode} disabled={runButtonDisabled}>
             <Play className="mr-2 h-4 w-4" />
             Run
@@ -572,5 +570,3 @@ export default function Home() {
     </div>
   );
 }
-
-    

@@ -48,21 +48,27 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   useEffect(() => {
     if (activeSnippetName) {
       setSnippetName(activeSnippetName);
+    } else {
+      setSnippetName(""); // Clear if no active snippet
     }
   }, [activeSnippetName]);
 
   const handleSave = () => {
+    if (!snippetName) {
+      // Maybe show a toast error
+      return;
+    }
     onSaveSnippet(snippetName);
     setIsSaveDialogOpen(false);
   };
   
   const handleDelete = (name: string) => {
-    if(window.confirm(`Are you sure you want to delete the snippet "${name}"?`)){
+    if(window.confirm(`Are you sure you want to delete the snippet "${name}"? This action cannot be undone.`)){
       onDeleteSnippet(name);
     }
   }
 
-  const isExistingSnippet = snippets.some(s => s.name === snippetName);
+  const isExistingSnippet = snippets.some(s => s.name === snippetName && s.name !== activeSnippetName);
 
   return (
     <TooltipProvider>
@@ -72,7 +78,8 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
              <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="w-[180px]">
-                    <span className="truncate max-w-[140px]">{activeSnippetName || "Snippets"}</span>
+                    <Save className="mr-2 h-4 w-4" />
+                    <span className="truncate max-w-[140px]">{activeSnippetName || "Unsaved Snippet"}</span>
                     <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -80,7 +87,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
              <TooltipContent>Manage Snippets</TooltipContent>
            </Tooltip>
            <DropdownMenuContent className="w-56" align="end">
-              <DropdownMenuItem onSelect={() => setIsSaveDialogOpen(true)}>
+              <DropdownMenuItem onSelect={() => { setSnippetName(activeSnippetName || ""); setIsSaveDialogOpen(true); }}>
                   <Save className="mr-2 h-4 w-4" />
                   <span>Save/Update Snippet</span>
               </DropdownMenuItem>
@@ -163,7 +170,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <DialogHeader>
               <DialogTitle>Save Snippet</DialogTitle>
                 <DialogDescription>
-                    Provide a name for your snippet. If a snippet with the same name already exists, it will be overwritten.
+                    Provide a name for your snippet. This saves the file locally in your browser. Use "Save to Cloud" to sync all files.
                 </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -175,6 +182,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   onChange={(e) => setSnippetName(e.target.value)}
                   className="col-span-3"
                   placeholder="e.g., 'My Awesome Function'"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                 />
               </div>
               {isExistingSnippet && (
@@ -192,5 +200,3 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
 };
 
 export default EditorToolbar;
-
-    
