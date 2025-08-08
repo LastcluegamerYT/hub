@@ -1,17 +1,18 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { Snippet, ConsoleMessage, EditorSettings } from "@/types";
-import { Code, Play, Save, Trash2, XCircle } from "lucide-react";
+import type { Snippet, ConsoleMessage, EditorSettings, ActiveFile } from "@/types";
+import { Code, Play, Save, Trash2, X } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
 import { JSHINT } from "jshint";
 import { useToast } from "@/hooks/use-toast";
-
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const defaultCode = `// Welcome to CodeRunner.js!
 // You can write and run your JavaScript code here.
@@ -31,8 +32,11 @@ console.log(greet('Developer'));
 // undeclaredVariable = true; // This will cause a linting error and a runtime error.
 `;
 
+const defaultFileName = "scratchpad.js";
+
 export default function Home() {
-  const [code, setCode] = useState<string>(defaultCode);
+  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", [{ id: defaultFileName, name: defaultFileName, code: defaultCode, isSaved: true }]);
+  const [activeFileId, setActiveFileId] = useLocalStorage<string>("active-file-id", defaultFileName);
   const [snippets, setSnippets] = useLocalStorage<Snippet[]>("snippets", []);
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [lintErrors, setLintErrors] = useState<any[]>([]);
@@ -47,9 +51,17 @@ export default function Home() {
     cursorStyle: "bar",
     liveRun: false,
     autoSemicolons: true,
+    multiFile: false,
   });
 
+  const activeFile = activeFiles.find(f => f.id === activeFileId) || activeFiles[0];
+  const code = activeFile?.code ?? defaultCode;
+
   const debouncedCode = useDebounce(code, 750);
+
+  const setCode = (newCode: string) => {
+    setActiveFiles(files => files.map(f => f.id === activeFileId ? { ...f, code: newCode, isSaved: snippets.some(s => s.name === f.name && s.code === newCode) } : f));
+  };
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
@@ -87,22 +99,10 @@ export default function Home() {
   useEffect(() => {
     const originalConsole = { ...window.console };
     const newConsole = {
-      log: (...args: any[]) => {
-        addMessage("log", ...args);
-        originalConsole.log(...args);
-      },
-      warn: (...args: any[]) => {
-        addMessage("warn", ...args);
-        originalConsole.warn(...args);
-      },
-      error: (...args: any[]) => {
-        addMessage("error", ...args);
-        originalConsole.error(...args);
-      },
-      info: (...args: any[]) => {
-        addMessage("info", ...args);
-        originalConsole.info(...args);
-      },
+      log: (...args: any[]) => addMessage("log", ...args),
+      warn: (...args: any[]) => addMessage("warn", ...args),
+      error: (...args: any[]) => addMessage("error", ...args),
+      info: (...args: any[]) => addMessage("info", ...args),
     };
 
     window.console = { ...window.console, ...newConsole };
@@ -118,35 +118,67 @@ export default function Home() {
   }, [debouncedCode, settings.liveRun, runCode]);
 
   const handleLint = useCallback((editorCode: string) => {
-    // The 'esversion: 6' option enables support for ES6 syntax.
-    // 'asi: true' allows for automatic semicolon insertion (prevents some lint errors).
-    // 'expr: true' allows expressions where statements are expected.
     JSHINT(editorCode, { esversion: 6, asi: true, expr: true });
     setLintErrors(JSHINT.errors || []);
   }, []);
 
   const handleSaveSnippet = (name: string) => {
-    if (name && !snippets.find((s) => s.name === name)) {
-      setSnippets([...snippets, { name, code }]);
-      toast({ title: "Snippet Saved", description: `Snippet "${name}" has been saved.`});
-    } else if (name) {
-      // Overwrite existing snippet
-      setSnippets(snippets.map(s => s.name === name ? { name, code } : s));
-      toast({ title: "Snippet Overwritten", description: `Snippet "${name}" has been updated.`});
+    if (name) {
+      const newSnippet = { name, code };
+      const existingIndex = snippets.findIndex(s => s.name === name);
+      if (existingIndex !== -1) {
+        const newSnippets = [...snippets];
+        newSnippets[existingIndex] = newSnippet;
+        setSnippets(newSnippets);
+        toast({ title: "Snippet Overwritten", description: `Snippet "${name}" has been updated.`});
+      } else {
+        setSnippets([...snippets, newSnippet]);
+        toast({ title: "Snippet Saved", description: `Snippet "${name}" has been saved.`});
+      }
+      setActiveFiles(files => files.map(f => f.id === activeFileId ? { ...f, name, isSaved: true } : f));
+      if (activeFileId === defaultFileName) {
+        setActiveFileId(name);
+      }
     }
   };
-
+  
   const handleLoadSnippet = (name: string) => {
     const snippet = snippets.find((s) => s.name === name);
     if (snippet) {
-      setCode(snippet.code);
+      const fileId = snippet.name;
+      if (!activeFiles.some(f => f.id === fileId)) {
+        setActiveFiles([...activeFiles, { id: fileId, name: snippet.name, code: snippet.code, isSaved: true }]);
+      }
+      setActiveFileId(fileId);
       toast({ title: "Snippet Loaded", description: `Loaded snippet "${name}".`});
     }
   };
 
   const handleDeleteSnippet = (name: string) => {
     setSnippets(snippets.filter((s) => s.name !== name));
+    if (activeFiles.some(f => f.id === name)) {
+      handleCloseTab(name);
+    }
     toast({ title: "Snippet Deleted", description: `Snippet "${name}" has been deleted.`, variant: "destructive" });
+  };
+  
+  const handleCloseTab = (tabId: string) => {
+    const fileToClose = activeFiles.find(f => f.id === tabId);
+    if (fileToClose && !fileToClose.isSaved) {
+       if (!window.confirm(`You have unsaved changes in "${fileToClose.name}". Are you sure you want to close it?`)) {
+         return;
+       }
+    }
+
+    const newFiles = activeFiles.filter(f => f.id !== tabId);
+    if (newFiles.length === 0) {
+      newFiles.push({ id: defaultFileName, name: defaultFileName, code: defaultCode, isSaved: true });
+    }
+
+    if (activeFileId === tabId) {
+      setActiveFileId(newFiles[0].id);
+    }
+    setActiveFiles(newFiles);
   };
   
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -193,6 +225,7 @@ export default function Home() {
             onSaveSnippet={handleSaveSnippet}
             onLoadSnippet={handleLoadSnippet}
             onDeleteSnippet={handleDeleteSnippet}
+            activeSnippetName={activeFile?.name}
           />
           <button
             onClick={runCode}
@@ -206,6 +239,27 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-grow flex flex-col overflow-hidden">
+        {settings.multiFile && (
+           <div className="flex border-b border-border bg-card">
+            {activeFiles.map(file => (
+              <div 
+                key={file.id}
+                onClick={() => setActiveFileId(file.id)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 border-r border-border cursor-pointer text-sm",
+                  activeFileId === file.id ? "bg-background text-primary" : "text-muted-foreground hover:bg-background/50"
+                )}
+              >
+                <span>{file.name}{!file.isSaved && '*'}</span>
+                {activeFiles.length > 1 && (
+                  <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
+                    <X size={14} />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex-grow relative" style={{ height: `calc(100% - ${consoleHeight}px)`}}>
           <CodeEditor
             value={code}
@@ -213,6 +267,8 @@ export default function Home() {
             onRun={runCode}
             onLint={handleLint}
             settings={settings}
+            onSave={() => handleSaveSnippet(activeFile.name)}
+            onToggleLiveRun={() => setSettings(s => ({...s, liveRun: !s.liveRun}))}
           />
         </div>
         <div 

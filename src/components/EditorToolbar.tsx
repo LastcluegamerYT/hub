@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { EditorSettings, Snippet } from "@/types";
 import { Button } from "./ui/button";
 import {
@@ -11,6 +11,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent
 } from "./ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -27,6 +30,7 @@ interface EditorToolbarProps {
   onSaveSnippet: (name: string) => void;
   onLoadSnippet: (name: string) => void;
   onDeleteSnippet: (name: string) => void;
+  activeSnippetName?: string;
 }
 
 const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -36,68 +40,65 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onSaveSnippet,
   onLoadSnippet,
   onDeleteSnippet,
+  activeSnippetName
 }) => {
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [snippetName, setSnippetName] = useState("");
-  const [selectedSnippet, setSelectedSnippet] = useState("");
+
+  useEffect(() => {
+    if (activeSnippetName) {
+      setSnippetName(activeSnippetName);
+    }
+  }, [activeSnippetName]);
 
   const handleSave = () => {
     onSaveSnippet(snippetName);
     setIsSaveDialogOpen(false);
-    setSnippetName("");
-    setSelectedSnippet(snippetName);
   };
   
-  const handleLoad = (name: string) => {
-    setSelectedSnippet(name);
-    onLoadSnippet(name);
-  };
-
-  const handleDelete = () => {
-    if(selectedSnippet){
-      onDeleteSnippet(selectedSnippet);
-      setSelectedSnippet("");
+  const handleDelete = (name: string) => {
+    if(window.confirm(`Are you sure you want to delete the snippet "${name}"?`)){
+      onDeleteSnippet(name);
     }
   }
 
   return (
     <TooltipProvider>
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1">
-          <Select value={selectedSnippet} onValueChange={handleLoad}>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Load Snippet" />
-                    </SelectTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Load a saved snippet</TooltipContent>
-            </Tooltip>
-            <SelectContent>
-                {snippets.length > 0 ? (
-                    snippets.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)
-                ) : (
-                    <div className="p-2 text-sm text-muted-foreground">No snippets saved.</div>
-                )}
-            </SelectContent>
-          </Select>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={() => setIsSaveDialogOpen(true)}>
-                <Save className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Save current code as a snippet</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={handleDelete} disabled={!selectedSnippet}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Delete selected snippet</TooltipContent>
-          </Tooltip>
-        </div>
+        <DropdownMenu>
+           <Tooltip>
+             <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-[180px]">
+                    <span className="truncate max-w-[140px]">{activeSnippetName || "Snippets"}</span>
+                    <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+             </TooltipTrigger>
+             <TooltipContent>Manage Snippets</TooltipContent>
+           </Tooltip>
+           <DropdownMenuContent className="w-56" align="end">
+              <DropdownMenuItem onSelect={() => setIsSaveDialogOpen(true)}>
+                  <Save className="mr-2 h-4 w-4" />
+                  <span>Save/Update Snippet</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Load Snippet</DropdownMenuLabel>
+              {snippets.length > 0 ? (
+                snippets.map(s => (
+                  <DropdownMenuSub key={s.name}>
+                    <DropdownMenuSubTrigger>{s.name}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onSelect={() => onLoadSnippet(s.name)}>Load</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleDelete(s.name)} className="text-red-500">Delete</DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ))
+              ) : (
+                <DropdownMenuItem disabled>No snippets saved</DropdownMenuItem>
+              )}
+           </DropdownMenuContent>
+        </DropdownMenu>
 
         <DropdownMenu>
           <Tooltip>
@@ -113,25 +114,19 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <DropdownMenuContent className="w-64" align="end">
             <DropdownMenuLabel>Editor Settings</DropdownMenuLabel>
             <DropdownMenuSeparator />
-
             <div className="p-2 space-y-4">
               <div className="flex items-center justify-between">
-                <Label htmlFor="live-run" className="flex-grow">Live Run</Label>
-                <Switch
-                  id="live-run"
-                  checked={settings.liveRun}
-                  onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, liveRun: checked }))}
-                />
+                <Label htmlFor="live-run" className="flex-grow">Live Run (Ctrl+L)</Label>
+                <Switch id="live-run" checked={settings.liveRun} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, liveRun: checked }))} />
               </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="auto-semicolon" className="flex-grow">Auto Semicolons</Label>
-                <Switch
-                  id="auto-semicolon"
-                  checked={settings.autoSemicolons}
-                  onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, autoSemicolons: checked }))}
-                />
+                <Switch id="auto-semicolon" checked={settings.autoSemicolons} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, autoSemicolons: checked }))} />
               </div>
-
+              <div className="flex items-center justify-between">
+                <Label htmlFor="multi-file" className="flex-grow">Multi-File Tabs</Label>
+                <Switch id="multi-file" checked={settings.multiFile} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, multiFile: checked }))} />
+              </div>
               <div className="space-y-2">
                  <Label>Theme</Label>
                  <Select value={settings.theme} onValueChange={(value) => onSettingsChange(s => ({...s, theme: value as 'dark' | 'light'}))}>
@@ -142,7 +137,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                      </SelectContent>
                  </Select>
               </div>
-
                <div className="space-y-2">
                  <Label>Cursor Style</Label>
                  <Select value={settings.cursorStyle} onValueChange={(value) => onSettingsChange(s => ({...s, cursorStyle: value as any}))}>
@@ -154,32 +148,13 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                      </SelectContent>
                  </Select>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="font-size">Font Size: {settings.fontSize}px</Label>
-                <Input
-                  id="font-size"
-                  type="range"
-                  min="10"
-                  max="24"
-                  step="1"
-                  value={settings.fontSize}
-                  onChange={(e) => onSettingsChange(s => ({ ...s, fontSize: Number(e.target.value) }))}
-                  className="p-0"
-                />
+                <Input id="font-size" type="range" min="10" max="24" step="1" value={settings.fontSize} onChange={(e) => onSettingsChange(s => ({ ...s, fontSize: Number(e.target.value) }))} className="p-0" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="line-height">Line Height: {settings.lineHeight}</Label>
-                <Input
-                  id="line-height"
-                  type="range"
-                  min="1.2"
-                  max="2.2"
-                  step="0.1"
-                  value={settings.lineHeight}
-                  onChange={(e) => onSettingsChange(s => ({ ...s, lineHeight: Number(e.target.value) }))}
-                  className="p-0"
-                />
+                <Input id="line-height" type="range" min="1.2" max="2.2" step="0.1" value={settings.lineHeight} onChange={(e) => onSettingsChange(s => ({ ...s, lineHeight: Number(e.target.value) }))} className="p-0" />
               </div>
             </div>
           </DropdownMenuContent>
@@ -201,8 +176,11 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   placeholder="e.g., 'My Awesome Function'"
                 />
               </div>
-              {snippets.some(s => s.name === snippetName) && (
-                <p className="text-sm text-yellow-500 col-span-4 text-center">A snippet with this name already exists and will be overwritten.</p>
+              {snippets.some(s => s.name === snippetName && s.name !== activeSnippetName) && (
+                <p className="text-sm text-yellow-500 col-span-4 text-center">A snippet with this name already exists. Saving will create a new one.</p>
+              )}
+               {snippets.some(s => s.name === snippetName && s.name === activeSnippetName) && (
+                <p className="text-sm text-yellow-500 col-span-4 text-center">This will overwrite the existing snippet.</p>
               )}
             </div>
             <DialogFooter>

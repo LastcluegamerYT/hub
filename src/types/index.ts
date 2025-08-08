@@ -20,4 +20,12 @@ export type EditorSettings = {
   cursorStyle: CursorStyle;
   liveRun: boolean;
   autoSemicolons: boolean;
+  multiFile: boolean;
+};
+
+export type ActiveFile = {
+  id: string; // Can be snippet name or a temporary ID
+  name: string;
+  code: string;
+  isSaved: boolean;
 };
