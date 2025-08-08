@@ -6,7 +6,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
 import { html } from "@codemirror/lang-html";
 import { lintGutter, linter } from "@codemirror/lint";
-import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { eclipse } from "@uiw/codemirror-theme-eclipse";
 import type { EditorSettings, ActiveFile } from "@/types";
@@ -129,7 +129,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
             typescript: false, 
             extraExtensions: [customAutocomplete]
         });
-        linterExtensions = [jsLinter, lintGutter(), hoverTooltip(jsLinter)];
+        linterExtensions = [jsLinter, lintGutter()];
     } else if (fileType === 'html') {
         languageExtension = html({
              matchClosingTags: true,
