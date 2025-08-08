@@ -43,6 +43,11 @@ export default function Home() {
   const [consoleHeight, setConsoleHeight] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const [settings, setSettings] = useLocalStorage<EditorSettings>("editor-settings", {
     theme: "dark",
@@ -209,6 +214,10 @@ export default function Home() {
       document.removeEventListener("mouseup", handleMouseUp);
     }
   }, [isResizing, handleMouseMove, handleMouseUp])
+
+  if (!isClient) {
+    return null;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground font-sans">
