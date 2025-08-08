@@ -92,7 +92,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
             // This transaction inserts the semicolon. We'll handle the newline separately.
             const transaction = state.update({
               changes: { from: insertPos, insert },
-              selection: { anchor: pos + insert.length },
+              selection: { anchor: pos }, // Keep cursor at original position before newline
               userEvent: 'input.complete'
             });
 
@@ -101,9 +101,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           }
 
           // Let the default command for 'Enter' handle the newline.
-          return insertNewlineAndIndent(view);
+          return {range: state.selection.ranges[0]}; // a bit of a hack to get the original range back
         });
-        return true;
+        
+        // Now dispatch the newline command
+        return insertNewlineAndIndent(view);
       }
       
       // If auto-semicolons are off, just do the default action.
