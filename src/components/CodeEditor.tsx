@@ -24,7 +24,7 @@ interface CodeEditorProps {
 }
 
 const jsLinter = linter((view) => {
-  JSHINT(view.state.doc.toString(), { esversion: 6, asi: true, expr: true });
+  JSHINT(view.state.doc.toString(), { esversion: 6, asi: true, expr: true, globals: { console: false, alert: false, document: false, window: false } });
   return (JSHINT.errors || []).map((err: LintError) => ({
     from: view.state.doc.line(err.line).from + (err.character || 1) - 1,
     to: view.state.doc.line(err.line).from + (err.character || 1),
@@ -49,28 +49,37 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           const text = line.text.trim();
           
           const noSemicolonRegex = /[\w)\]'"`]$/; // Ends with word char, ), ], ', ", or `
-          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':'];
+          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':', '>', ','];
           const isComment = text.startsWith('//') || text.startsWith('/*');
-
+          const isBlockOpener = /\{\s*$/.test(text); // Ends with {
+          
           const shouldAddSemicolon = text.length > 0 &&
             !text.endsWith(';') &&
             !isComment &&
+            !isBlockOpener &&
             noSemicolonRegex.test(text) &&
             !noSemicolonBlockEndings.some(ending => text.endsWith(ending));
           
           if (shouldAddSemicolon) {
             const insertPos = line.to;
-            return {
-              changes: { from: insertPos, insert: ';' },
-              range: range, // keep original range for now
-            };
-          }
-          return { range };
-        });
+            const insert = ';';
+            
+            // This transaction inserts the semicolon and then creates the new line.
+            const transaction = state.update({
+              changes: { from: insertPos, insert },
+              selection: { anchor: pos + insert.length },
+              userEvent: 'input.complete'
+            });
 
-        if (changes.changes.length > 0) {
-          dispatch(changes);
-        }
+            // Dispatch this change first
+            dispatch(transaction);
+            
+            // Then run the default Enter command
+            return insertNewlineAndIndent(view);
+
+          }
+          return false; // Let the default handler take over
+        });
       }
       
       return insertNewlineAndIndent(view);
@@ -80,7 +89,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
   const extensions = useMemo(() => {
     const commonExtensions = [
-      javascript({ jsx: true }),
+      javascript({ 
+        jsx: true,
+        typescript: false,
+      }),
       jsLinter,
       lintGutter(),
       EditorView.lineWrapping,
