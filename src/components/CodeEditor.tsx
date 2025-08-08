@@ -41,30 +41,33 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
   const autoSemicolonKeymap = useMemo(() => Prec.high(keymap.of([{
     key: 'Enter',
     run: (view) => {
-      if (!settings.autoSemicolons) return insertNewline(view);
-      
-      const { state, dispatch } = view;
-      const pos = state.selection.main.head;
-      const line = state.doc.lineAt(pos);
-      const text = line.text.trim();
-      
-      const shouldAddSemicolon = text.length > 0 &&
-        !text.endsWith(';') &&
-        !text.endsWith('{') &&
-        !text.endsWith('}') &&
-        !text.endsWith('(') &&
-        !text.endsWith(')') &&
-        !text.endsWith('[') &&
-        !text.endsWith(']') &&
-        !text.startsWith('//') &&
-        !text.startsWith('/*') &&
-        !text.endsWith(':') &&
-        !text.endsWith('=>');
+      if (settings.autoSemicolons) {
+        const { state, dispatch } = view;
+        const pos = state.selection.main.head;
+        const line = state.doc.lineAt(pos);
+        const text = line.text.trim();
+        
+        const shouldAddSemicolon = text.length > 0 &&
+          !text.endsWith(';') &&
+          !text.endsWith('{') &&
+          !text.endsWith('}') &&
+          !text.endsWith('(') &&
+          !text.endsWith(')') &&
+          !text.endsWith('[') &&
+          !text.endsWith(']') &&
+          !text.startsWith('//') &&
+          !text.startsWith('/*') &&
+          !text.endsWith(':') &&
+          !text.endsWith('=>');
 
-      if (shouldAddSemicolon) {
-        dispatch({ changes: { from: line.to, insert: ';' } });
+        if (shouldAddSemicolon) {
+          dispatch({
+            changes: { from: line.to, insert: ';' },
+            selection: { anchor: pos, head: pos } // Keep cursor position before inserting newline
+          });
+        }
       }
-      
+      // Always run insertNewline, but after semicolon logic if enabled
       return insertNewline(view);
     }
   }])), [settings.autoSemicolons]);
