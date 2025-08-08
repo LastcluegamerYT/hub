@@ -22,11 +22,6 @@ import {
 } from '@codemirror/commands';
 import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
-import {
-  autocompletion as jsAutocompletion,
-  completionPath,
-  ifNotIn,
-} from '@codemirror/autocomplete';
 
 interface CodeEditorProps {
   value: string;
@@ -60,15 +55,70 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
   const extensions = useMemo(() => {
     const customAutocomplete = javascriptLanguage.data.of({
-      autocomplete: scopeCompletionSource(javascriptLanguage.scope),
+      autocomplete: (context: any) => {
+        const word = context.matchBefore(/\w*/);
+        if (!word || (word.from === word.to && !context.explicit)) return null;
+
+        const tree = syntaxTree(context.state);
+        const userCodeGlobals: Record<string, any> = {};
+        tree.cursor().iterate(node => {
+          if (node.type.name === 'VariableDeclaration') {
+             try {
+                const declarationText = context.state.doc.sliceString(node.from, node.to);
+                const match = declarationText.match(/(?:let|const|var)\s+([^=\s]+)/);
+                if (match && match[1]) {
+                    userCodeGlobals[match[1]] = 'variable';
+                }
+             } catch(e) {
+                // ignore parsing errors
+             }
+          }
+          if (node.type.name === 'FunctionDeclaration') {
+            try {
+                const functionDef = node.node.getChild('VariableDefinition');
+                if (functionDef) {
+                    const name = context.state.doc.sliceString(functionDef.from, functionDef.to);
+                    userCodeGlobals[name] = 'function';
+                }
+            } catch(e) {
+                 // ignore parsing errors
+            }
+          }
+        });
+
+        // Combine with standard JS globals, only on client
+        const clientGlobals = typeof window !== 'undefined' ? window : {};
+        const allGlobals = { ...userCodeGlobals, ...clientGlobals };
+
+        let options = Object.keys(userCodeGlobals).map(key => ({
+            label: key,
+            type: userCodeGlobals[key] as 'variable' | 'function'
+        }));
+
+        if (typeof window !== 'undefined') {
+            const windowOptions = Object.getOwnPropertyNames(window)
+                .filter(p => typeof window[p as any] === 'function' || typeof window[p as any] === 'object')
+                .map(key => ({
+                    label: key,
+                    type: typeof window[key as any] === 'function' ? 'function' : 'variable'
+                }));
+            options = [...options, ...windowOptions];
+        }
+
+
+        return {
+          from: word.from,
+          options: options,
+        };
+      },
     });
 
     const commonExtensions = [
       javascript({ 
         jsx: true, 
         typescript: false,
+        all: customAutocomplete
       }),
-      customAutocomplete,
       jsLinter,
       lintGutter(),
       hoverTooltip(jsLinter),
@@ -124,7 +174,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
     });
 
     return [...commonExtensions, dynamicTheme];
-  }, [settings, onRun, onSave, onToggleLiveRun]);
+  }, [settings, onRun, onSave, onToggleLiveRun, value]);
 
   return (
     <CodeMirror
