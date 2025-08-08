@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { Snippet, ConsoleMessage, EditorSettings, ActiveFile } from "@/types";
-import { Code, Play, Save, Trash2, X, Plus, FilePenLine } from "lucide-react";
+import { Code, Play, Save, Trash2, X, Plus, FilePenLine, FileCode } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 
-const defaultCode = `// Welcome to CodeRunner.js!
+const defaultJsCode = `// Welcome to CodeRunner.js!
 // You can write and run your JavaScript code here.
 // Try changing this message and hitting the 'Run' button.
 
@@ -37,11 +37,34 @@ console.log(greet('Developer'));
 // undeclaredVariable = true; // This will cause a linting error and a runtime error.
 `;
 
-const defaultFileName = "main.js";
+const defaultHtmlCode = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeRunner Output</title>
+    <style>
+        body { font-family: sans-serif; background-color: #282A36; color: #f8f8f2; padding: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>Hello from CodeRunner.js!</h1>
+    <p>Your JavaScript output will appear in the browser's console (Press F12 to open).</p>
+    <!-- Your open JavaScript files will be automatically included here -->
+</body>
+</html>
+`;
+
+
+const defaultJsFileName = "main.js";
+const defaultHtmlFileName = "index.html";
 
 export default function Home() {
-  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", [{ id: defaultFileName, name: defaultFileName, code: defaultCode, isSaved: true }]);
-  const [activeFileId, setActiveFileId] = useLocalStorage<string>("active-file-id", defaultFileName);
+  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", [
+      { id: defaultHtmlFileName, name: defaultHtmlFileName, code: defaultHtmlCode, type: 'html', isSaved: true },
+      { id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true }
+  ]);
+  const [activeFileId, setActiveFileId] = useLocalStorage<string>("active-file-id", defaultHtmlFileName);
   const [snippets, setSnippets] = useLocalStorage<Snippet[]>("snippets", []);
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [lintErrors, setLintErrors] = useState<any[]>([]);
@@ -65,11 +88,11 @@ export default function Home() {
     cursorStyle: "bar",
     liveRun: false,
     autoSemicolons: true,
-    multiFile: false,
+    multiFile: true,
   });
 
   const activeFile = activeFiles.find(f => f.id === activeFileId) || activeFiles[0];
-  const code = activeFile?.code ?? defaultCode;
+  const code = activeFile?.code ?? '';
 
   const debouncedCode = useDebounce(code, 750);
 
@@ -91,24 +114,40 @@ export default function Home() {
   }, []);
   
   const runCode = useCallback(() => {
-    if (lintErrors.length > 0) {
-      addMessage("error", "Cannot run code with linting errors. Please fix them first.");
-      toast({
-        title: "Linting Error",
-        description: "Cannot run code with linting errors. Please fix them first.",
-        variant: "destructive"
-      });
-      return;
+    if (activeFile.type === 'javascript') {
+      if (lintErrors.length > 0) {
+        addMessage("error", "Cannot run code with linting errors. Please fix them first.");
+        toast({
+          title: "Linting Error",
+          description: "Cannot run code with linting errors. Please fix them first.",
+          variant: "destructive"
+        });
+        return;
+      }
+      clearMessages();
+      try {
+        // eslint-disable-next-line no-new-func
+        const func = new Function('console', code);
+        func(window.console);
+      } catch (error: any) {
+        addMessage("error", error.toString());
+      }
+    } else if (activeFile.type === 'html') {
+        const jsFiles = activeFiles.filter(f => f.type === 'javascript');
+        const scriptTags = jsFiles.map(f => `<script>\n// ${f.name}\n${f.code}\n</script>`).join('\n');
+        
+        const finalHtml = code.replace('</body>', `${scriptTags}\n</body>`);
+
+        const newWindow = window.open();
+        if (newWindow) {
+          newWindow.document.write(finalHtml);
+          newWindow.document.close();
+          toast({ title: "HTML Rendered", description: "Output displayed in new tab." });
+        } else {
+          toast({ title: "Error", description: "Could not open new window. Please disable your pop-up blocker.", variant: "destructive" });
+        }
     }
-    clearMessages();
-    try {
-      // eslint-disable-next-line no-new-func
-      const func = new Function('console', code);
-      func(window.console);
-    } catch (error: any) {
-      addMessage("error", error.toString());
-    }
-  }, [code, lintErrors, addMessage, clearMessages, toast]);
+  }, [code, lintErrors, addMessage, clearMessages, toast, activeFile, activeFiles]);
 
   useEffect(() => {
     const originalConsole = { ...window.console };
@@ -126,19 +165,23 @@ export default function Home() {
   }, [addMessage]);
 
   useEffect(() => {
-    if (settings.liveRun && debouncedCode) {
+    if (settings.liveRun && debouncedCode && activeFile?.type === 'javascript') {
       runCode();
     }
-  }, [debouncedCode, settings.liveRun, runCode]);
+  }, [debouncedCode, settings.liveRun, runCode, activeFile]);
 
   const handleLint = useCallback((editorCode: string) => {
-    JSHINT(editorCode, { esversion: 6, asi: true, expr: true });
-    setLintErrors(JSHINT.errors || []);
-  }, []);
+    if (activeFile?.type === 'javascript') {
+        JSHINT(editorCode, { esversion: 6, asi: true, expr: true });
+        setLintErrors(JSHINT.errors || []);
+    } else {
+        setLintErrors([]);
+    }
+  }, [activeFile]);
 
   const handleSaveSnippet = (name: string) => {
-    if (name) {
-      const newSnippet = { name, code };
+    if (name && activeFile) {
+      const newSnippet: Snippet = { name, code, type: activeFile.type };
       const existingIndex = snippets.findIndex(s => s.name === name);
       if (existingIndex !== -1) {
         const newSnippets = [...snippets];
@@ -150,7 +193,7 @@ export default function Home() {
         toast({ title: "Snippet Saved", description: `Snippet "${name}" has been saved.`});
       }
       setActiveFiles(files => files.map(f => f.id === activeFileId ? { ...f, name, isSaved: true } : f));
-      if (activeFileId === defaultFileName) {
+      if (activeFileId === defaultJsFileName || activeFileId === defaultHtmlFileName) {
         setActiveFileId(name);
       }
     }
@@ -161,7 +204,7 @@ export default function Home() {
     if (snippet) {
       const fileId = snippet.name;
       if (!activeFiles.some(f => f.id === fileId)) {
-        setActiveFiles([...activeFiles, { id: fileId, name: snippet.name, code: snippet.code, isSaved: true }]);
+        setActiveFiles([...activeFiles, { id: fileId, name: snippet.name, code: snippet.code, type: snippet.type, isSaved: true }]);
       }
       setActiveFileId(fileId);
       toast({ title: "Snippet Loaded", description: `Loaded snippet "${name}".`});
@@ -186,7 +229,7 @@ export default function Home() {
 
     const newFiles = activeFiles.filter(f => f.id !== tabId);
     if (newFiles.length === 0) {
-      newFiles.push({ id: defaultFileName, name: defaultFileName, code: defaultCode, isSaved: true });
+       newFiles.push({ id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true });
     }
 
     if (activeFileId === tabId) {
@@ -213,25 +256,37 @@ export default function Home() {
     }
   }, [isResizing]);
 
-  const handleAddNewFile = () => {
-    const newFileId = `new-file-${Date.now()}.js`;
-    let newFileName = "untitled.js";
-    let counter = 1;
-    while(activeFiles.some(f => f.name === newFileName)) {
-      newFileName = `untitled-${counter}.js`;
-      counter++;
-    }
+  const handleAddNewFile = (type: 'javascript' | 'html') => {
+      const extension = type === 'javascript' ? '.js' : '.html';
+      const baseName = type === 'javascript' ? 'untitled' : 'index';
+      const defaultContent = type === 'javascript' ? `// new file` : defaultHtmlCode;
 
-    const newFile: ActiveFile = {
-      id: newFileId,
-      name: newFileName,
-      code: `// ${newFileName}`,
-      isSaved: false
-    };
+      if (type === 'html' && activeFiles.some(f => f.type === 'html')) {
+          toast({ title: "File exists", description: "Only one HTML file is allowed at the moment.", variant: "destructive"});
+          return;
+      }
 
-    setActiveFiles([...activeFiles, newFile]);
-    setActiveFileId(newFileId);
+      let newFileName = `${baseName}${extension}`;
+      let counter = 1;
+      while (activeFiles.some(f => f.name === newFileName)) {
+        newFileName = `${baseName}-${counter}${extension}`;
+        counter++;
+      }
+      
+      const newFileId = `${baseName}-${Date.now()}${extension}`;
+
+      const newFile: ActiveFile = {
+        id: newFileId,
+        name: newFileName,
+        code: defaultContent,
+        type: type,
+        isSaved: false
+      };
+
+      setActiveFiles([...activeFiles, newFile]);
+      setActiveFileId(newFileId);
   };
+
 
   const handleRename = () => {
     if (!fileToRename || !newFileName) return;
@@ -279,6 +334,8 @@ export default function Home() {
     return null;
   }
 
+  const runButtonDisabled = activeFile.type === 'javascript' && lintErrors.length > 0;
+
   return (
     <TooltipProvider>
     <div className="flex flex-col h-screen bg-background text-foreground font-sans">
@@ -300,8 +357,8 @@ export default function Home() {
           <button
             onClick={runCode}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50"
-            disabled={lintErrors.length > 0}
-            title={lintErrors.length > 0 ? "Fix lint errors to run" : "Run Code (Ctrl+Enter)"}
+            disabled={runButtonDisabled}
+            title={runButtonDisabled ? "Fix lint errors to run" : "Run Code (Ctrl+Enter)"}
           >
             <Play size={16} />
             Run
@@ -322,6 +379,7 @@ export default function Home() {
                 )}
                 title={file.name}
               >
+                {file.type === 'javascript' ? <Code size={14} /> : <FileCode size={14} />}
                 <span className="truncate max-w-32">{file.name}{!file.isSaved && '*'}</span>
                 
                 <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
@@ -331,12 +389,22 @@ export default function Home() {
             ))}
              <Tooltip>
                 <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={handleAddNewFile}>
+                    <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={() => handleAddNewFile('javascript')}>
                         <Plus size={16} />
                     </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                    <p>New File</p>
+                    <p>New JS File</p>
+                </TooltipContent>
+            </Tooltip>
+             <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleAddNewFile('html')}>
+                        <FileCode size={16} />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                    <p>New HTML File</p>
                 </TooltipContent>
             </Tooltip>
           </div>
@@ -350,6 +418,7 @@ export default function Home() {
             settings={settings}
             onSave={() => handleSaveSnippet(activeFile.name)}
             onToggleLiveRun={() => setSettings(s => ({...s, liveRun: !s.liveRun}))}
+            fileType={activeFile?.type ?? 'javascript'}
           />
         </div>
         <div 
@@ -393,3 +462,5 @@ export default function Home() {
     </TooltipProvider>
   );
 }
+
+    

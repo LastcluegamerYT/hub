@@ -3,12 +3,13 @@
 
 import React, { useMemo, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { javascript, javascriptLanguage, scopeCompletionSource } from "@codemirror/lang-javascript";
+import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
+import { html } from "@codemirror/lang-html";
 import { lintGutter, linter } from "@codemirror/lint";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { eclipse } from "@uiw/codemirror-theme-eclipse";
-import type { EditorSettings } from "@/types";
+import type { EditorSettings, ActiveFile } from "@/types";
 import { JSHINT, type LintError } from "jshint";
 import { Prec } from '@codemirror/state';
 import { 
@@ -31,6 +32,7 @@ interface CodeEditorProps {
   settings: EditorSettings;
   onSave: () => void;
   onToggleLiveRun: () => void;
+  fileType: ActiveFile['type'];
 }
 
 const jsLinter = linter((view) => {
@@ -48,7 +50,7 @@ const jsLinter = linter((view) => {
   }));
 });
 
-const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint, settings, onSave, onToggleLiveRun }) => {
+const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint, settings, onSave, onToggleLiveRun, fileType }) => {
   useEffect(() => {
     onLint(value);
   }, [value, onLint]);
@@ -96,11 +98,17 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         }));
 
         if (typeof window !== 'undefined') {
-            const windowOptions = Object.getOwnPropertyNames(window)
-                .filter(p => typeof window[p as any] === 'function' || typeof window[p as any] === 'object')
+            const windowOptions = Object.getOwnPropertyNames(clientGlobals)
+                .filter(p => {
+                    try {
+                        return typeof clientGlobals[p as any] === 'function' || typeof clientGlobals[p as any] === 'object'
+                    } catch {
+                        return false
+                    }
+                })
                 .map(key => ({
                     label: key,
-                    type: typeof window[key as any] === 'function' ? 'function' : 'variable'
+                    type: typeof clientGlobals[key as any] === 'function' ? 'function' : 'variable'
                 }));
             options = [...options, ...windowOptions];
         }
@@ -113,15 +121,25 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       },
     });
 
+    let languageExtension;
+    let linterExtension = [];
+    if (fileType === 'javascript') {
+        languageExtension = javascript({ 
+            jsx: false, 
+            typescript: false, 
+            all: customAutocomplete 
+        });
+        linterExtension = [jsLinter, lintGutter(), hoverTooltip(jsLinter)];
+    } else if (fileType === 'html') {
+        languageExtension = html({
+             matchClosingTags: true,
+             autoCloseTags: true,
+        });
+    }
+
     const commonExtensions = [
-      javascript({ 
-        jsx: true, 
-        typescript: false,
-        all: customAutocomplete
-      }),
-      jsLinter,
-      lintGutter(),
-      hoverTooltip(jsLinter),
+      languageExtension,
+      ...linterExtension,
       EditorView.lineWrapping,
       keymap.of([
         { key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { onRun(); return true; }},
@@ -139,6 +157,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       autocompletion(),
       closeBrackets(),
       Prec.high(keymap.of(defaultKeymap)),
+      EditorView.multipleSelections()
     ];
 
     const dynamicTheme = EditorView.theme({
@@ -146,11 +165,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       '.cm-content': { fontFamily: `var(--font-code)` },
       '.cm-gutters': { fontFamily: `var(--font-code)` },
       '.cm-line': { lineHeight: `${settings.lineHeight}` },
-      '.cm-cursor': { borderLeftWidth: settings.cursorStyle === 'bar' ? '2px' : '0', textDecoration: settings.cursorStyle === 'underline' ? 'underline' : 'none'},
+      '.cm-cursor, .cm-dropCursor': { borderLeft: `2px solid ${settings.theme === 'dark' ? '#f8f8f2' : '#000000'}` },
+      '.cm-selectionBackground, & .cm-selectionBackground, & .cm-content ::selection': { backgroundColor: '#44475a' },
       '&.cm-focused .cm-cursor': { borderLeftColor: settings.theme === 'dark' ? '#f8f8f2' : '#000000' },
-      '.cm-selectionBackground, & .cm-selectionBackground': { backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background) !important' : 'default' },
-       '&.cm-focused .cm-selectionBackground': { backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background) !important' : 'default' },
-       '.cm-cursor-primary': { backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background)' : 'transparent', color: settings.cursorStyle === 'block' ? '#fff' : 'default'},
        '.cm-tooltip-lint': {
           padding: '4px 8px',
           backgroundColor: 'hsl(var(--popover))',
@@ -173,8 +190,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
        }
     });
 
-    return [...commonExtensions, dynamicTheme];
-  }, [settings, onRun, onSave, onToggleLiveRun, value]);
+    return [...commonExtensions, dynamicTheme].filter(Boolean);
+  }, [settings, onRun, onSave, onToggleLiveRun, value, fileType]);
 
   return (
     <CodeMirror
@@ -189,10 +206,12 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         highlightActiveLineGutter: true, autocompletion: false,
         bracketMatching: true, closeBrackets: true,
         history: true,
-        drawSelection: true, multipleSelections: true,
+        drawSelection: true,
       }}
     />
   );
 };
 
 export default CodeEditor;
+
+    
