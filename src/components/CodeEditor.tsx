@@ -12,7 +12,7 @@ import type { EditorSettings } from "@/types";
 import { JSHINT, type LintError } from "jshint";
 import { keymap } from "@codemirror/view";
 import { Prec } from '@codemirror/state';
-import { insertNewline } from '@codemirror/commands';
+import { insertNewlineAndIndent, insertNewline } from '@codemirror/commands';
 import { closeBrackets } from "@codemirror/autocomplete";
 
 interface CodeEditorProps {
@@ -61,10 +61,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           !text.endsWith('=>');
 
         if (shouldAddSemicolon) {
-          dispatch({
+           const transaction = state.update({
             changes: { from: line.to, insert: ';' },
-            selection: { anchor: pos, head: pos } // Keep cursor position before inserting newline
+            selection: { anchor: line.to + 1 }, // move cursor after semicolon
           });
+          dispatch(transaction);
         }
       }
       // Always run insertNewline, but after semicolon logic if enabled
