@@ -13,7 +13,7 @@ import { JSHINT, type LintError } from "jshint";
 import { keymap } from "@codemirror/view";
 import { Prec } from '@codemirror/state';
 import { insertNewlineAndIndent } from '@codemirror/commands';
-import { closeBrackets } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
 
 interface CodeEditorProps {
   value: string;
@@ -94,6 +94,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           },
         },
       ]),
+      autocompletion(),
       closeBrackets(),
       autoSemicolonKeymap,
     ];
