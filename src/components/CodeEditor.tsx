@@ -3,7 +3,7 @@
 
 import React, { useMemo, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
+import { javascript, javascriptLanguage, scopeCompletionSource } from "@codemirror/lang-javascript";
 import { lintGutter, linter } from "@codemirror/lint";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
@@ -21,7 +21,7 @@ import {
   moveLineDown,
   moveLineUp
 } from '@codemirror/commands';
-import { autocompletion, closeBrackets, completionKeymap, ifIn, completeFromList, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 
 interface CodeEditorProps {
@@ -49,39 +49,6 @@ const jsLinter = linter((view) => {
   }));
 });
 
-const dynamicCompletions = (context: CompletionContext): CompletionResult | null => {
-    let tree = syntaxTree(context.state);
-    let word = context.matchBefore(/\w*/);
-    if (!word || (word.from === word.to && !context.explicit)) return null;
-
-    let options: { label: string; type: string; }[] = [];
-    tree.iterate({
-        enter: (node) => {
-            if (node.name === "VariableName") {
-                const name = context.state.sliceDoc(node.from, node.to);
-                if (!options.some(o => o.label === name)) {
-                    options.push({ label: name, type: "variable" });
-                }
-            } else if (node.name === "FunctionDeclaration") {
-                const functionNode = node.node;
-                const identifier = functionNode.getChild("VariableDefinition");
-                if (identifier) {
-                    const name = context.state.sliceDoc(identifier.from, identifier.to);
-                     if (!options.some(o => o.label === name)) {
-                        options.push({ label: `${name}()`, type: "function" });
-                    }
-                }
-            }
-        }
-    });
-
-    return {
-        from: word.from,
-        options: options,
-        validFor: /^\w*$/
-    };
-};
-
 const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint, settings, onSave, onToggleLiveRun }) => {
   useEffect(() => {
     onLint(value);
@@ -96,7 +63,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         const line = state.doc.lineAt(pos);
         let text = line.text.trim();
         
-        // Strip comments from the end of the line
         const commentMatch = text.match(/\s*\/\//);
         if (commentMatch) {
             text = text.substring(0, commentMatch.index).trim();
@@ -130,26 +96,17 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
 
   const extensions = useMemo(() => {
-    const customCompletions = javascriptLanguage.data.of({
-        autocomplete: dynamicCompletions,
-    });
-    
-    const globalCompletions = javascriptLanguage.data.of({
-        autocomplete: (context: CompletionContext) => {
-            return (window as any).completionSources?.(context);
-        }
-    });
-
     const commonExtensions = [
       javascript({ 
         jsx: true, 
         typescript: false,
+        autocomplete: [
+            scopeCompletionSource(javascriptLanguage.scope),
+        ],
       }),
-      customCompletions,
-      globalCompletions,
       jsLinter,
       lintGutter(),
-      hoverTooltip(linter(jsLinter), {hideOnChange: true}),
+      hoverTooltip(jsLinter, {hideOnChange: true}),
       EditorView.lineWrapping,
       keymap.of([
         { key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { onRun(); return true; }},
@@ -166,7 +123,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       ]),
       autocompletion(),
       closeBrackets(),
-      Prec.high(keymap.of(defaultKeymap)), // Enables multi-cursor
+      Prec.high(keymap.of(defaultKeymap)),
     ];
 
     if (settings.autoSemicolons) {
@@ -190,23 +147,23 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           border: '1px solid hsl(var(--border))',
           borderRadius: 'var(--radius)',
           zIndex: '100',
+       },
+       '.cm-tooltip': {
+          backgroundColor: 'hsl(var(--popover))',
+          color: 'hsl(var(--popover-foreground))',
+          border: '1px solid hsl(var(--border))',
+          borderRadius: 'var(--radius)',
+       },
+       '.cm-completionLabel': {
+          fontFamily: `var(--font-code)`
+       },
+       '.cm-completionDetail': {
+          fontFamily: `var(--font-sans)`
        }
     });
 
     return [...commonExtensions, dynamicTheme];
   }, [settings, onRun, onSave, onToggleLiveRun, autoSemicolonKeymap]);
-
-  useEffect(() => {
-    // This is a bit of a hack to get global completions working
-    if (typeof window !== 'undefined') {
-        const propNames = Object.getOwnPropertyNames(window);
-        const completions = propNames.map(prop => ({
-          label: prop,
-          type: typeof (window as any)[prop] === 'function' ? 'function' : 'variable'
-        }));
-        (window as any).completionSources = completeFromList(completions);
-    }
-  }, []);
 
   return (
     <CodeMirror
@@ -218,8 +175,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       style={{ height: "100%", overflow: "auto" }}
       basicSetup={{
         lineNumbers: true, foldGutter: true, highlightActiveLine: true,
-        highlightActiveLineGutter: true, autocompletion: false, // handled by extensions
-        bracketMatching: true, closeBrackets: false, // handled by extensions
+        highlightActiveLineGutter: true, autocompletion: false,
+        bracketMatching: true, closeBrackets: false,
         history: true,
         drawSelection: true, multipleSelections: true,
       }}
