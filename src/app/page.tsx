@@ -65,25 +65,26 @@ export default function Home() {
   const [userId, setUserId] = useLocalStorage<string | null>('void-user-id', null);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
-  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("void-active-files", () => [
+  const [activeFiles, setActiveFiles] = useState<ActiveFile[]>(() => [
       { id: defaultHtmlFileName, name: defaultHtmlFileName, code: defaultHtmlCode, type: 'html', isSaved: true },
       { id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true }
   ]);
-  const [activeFileId, setActiveFileId] = useLocalStorage<string>("void-active-file-id", defaultHtmlFileName);
-  const [snippets, setSnippets] = useLocalStorage<Snippet[]>("void-snippets", []);
+  const [activeFileId, setActiveFileId] = useState<string>(defaultHtmlFileName);
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
   
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [lintErrors, setLintErrors] = useState<any[]>([]);
   const [consoleHeight, setConsoleHeight] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
-  const { toast } = useToast();
-  const [isClient, setIsClient] = useState(false);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [fileToRename, setFileToRename] = useState<ActiveFile | null>(null);
   const [newFileName, setNewFileName] = useState("");
+  const { toast } = useToast();
 
-  const dataInitializedRef = useRef(false);
+  const firebaseDataLoadedRef = useRef(false);
+  const isWritingToFirebaseRef = useRef(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -111,62 +112,67 @@ export default function Home() {
   const debouncedSettings = useDebounce(settings, 1000);
   const debouncedActiveFileId = useDebounce(activeFileId, 1000);
 
-
-  // Firebase Integration
+  // Firebase Integration: Load data and listen for remote changes
   useEffect(() => {
-    if (!userId) {
-        setIsDataLoaded(true); // No user ID, so we consider data "loaded" from local
-        return;
-    };
-    
+    if (!userId || !isClient) return;
+  
     const userRef = ref(database, `users/${userId}`);
-
-    const loadDataFromFirebase = async () => {
-        try {
-            const snapshot = await get(userRef);
-            if (snapshot.exists()) {
-                const data = snapshot.val();
-                if (data.activeFiles) setActiveFiles(data.activeFiles);
-                if (data.activeFileId) setActiveFileId(data.activeFileId);
-                if (data.snippets) setSnippets(data.snippets);
-                if (data.settings) setSettings(data.settings);
-                toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
-            } else {
-                // New user, push initial local storage state to Firebase
-                set(userRef, {
-                    activeFiles,
-                    activeFileId,
-                    snippets,
-                    settings
-                });
-            }
-        } catch (error) {
-            console.error("Firebase read failed:", error);
-            toast({ title: "Sync Error", description: "Could not load data from the cloud.", variant: 'destructive'});
-        } finally {
-            setIsDataLoaded(true);
-            setIsFirebaseSynced(true);
+  
+    const loadInitialData = async () => {
+      try {
+        const snapshot = await get(userRef);
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          // Set state from Firebase only if it hasn't been loaded before
+          if (!firebaseDataLoadedRef.current) {
+            if (data.activeFiles) setActiveFiles(data.activeFiles);
+            if (data.activeFileId) setActiveFileId(data.activeFileId);
+            if (data.snippets) setSnippets(data.snippets);
+            if (data.settings) setSettings(data.settings);
+            toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
+          }
+        } else {
+           // New user or no data, push initial local state to Firebase
+           set(userRef, { activeFiles, activeFileId, snippets, settings });
         }
+      } catch (error) {
+        console.error("Firebase read failed:", error);
+        toast({ title: "Sync Error", description: "Could not load data from the cloud.", variant: 'destructive'});
+      } finally {
+        setIsDataLoaded(true);
+        setIsFirebaseSynced(true);
+        firebaseDataLoadedRef.current = true;
+      }
     };
-
-    loadDataFromFirebase();
-      
+  
+    if (!firebaseDataLoadedRef.current) {
+        loadInitialData();
+    }
+  
     const unsubscribe = onValue(userRef, (snapshot) => {
-        if (snapshot.exists() && dataInitializedRef.current) {
-            // Data updated from another client. For a simple sync, we can just log this.
-            // A more complex app might merge changes here.
-            console.log("Data updated from another source.");
-        }
-        dataInitializedRef.current = true;
+      // If a write operation is in progress, ignore the incoming snapshot to prevent loops
+      if (isWritingToFirebaseRef.current) {
+        return;
+      }
+      
+      if (snapshot.exists() && firebaseDataLoadedRef.current) {
+        console.log("Data updated from another source.");
+        const data = snapshot.val();
+        if (data.activeFiles) setActiveFiles(data.activeFiles);
+        if (data.activeFileId) setActiveFileId(data.activeFileId);
+        if (data.snippets) setSnippets(data.snippets);
+        if (data.settings) setSettings(data.settings);
+      }
     });
-
+  
     return () => unsubscribe();
-  }, [userId, setActiveFiles, setActiveFileId, setSnippets, setSettings, toast, activeFiles, activeFileId, snippets, settings]);
+  }, [userId, isClient, setSettings, toast, activeFiles, activeFileId, snippets, settings]);
 
-
-  // Effect to write to Firebase
+  // Effect to write to Firebase on debounced changes
   useEffect(() => {
-    if (userId && isFirebaseSynced && isDataLoaded) {
+      if (!userId || !isFirebaseSynced || !isDataLoaded) return;
+  
+      isWritingToFirebaseRef.current = true;
       const userRef = ref(database, `users/${userId}`);
       const dataToSync = {
         activeFiles: debouncedActiveFiles,
@@ -174,12 +180,20 @@ export default function Home() {
         settings: debouncedSettings,
         activeFileId: debouncedActiveFileId,
       };
-      set(userRef, dataToSync).catch(error => {
-          console.error("Firebase write failed: ", error);
-          setIsFirebaseSynced(false); // Indicate sync failure
-          toast({ title: "Sync Error", description: "Failed to save changes to the cloud.", variant: 'destructive'});
-      });
-    }
+      
+      set(userRef, dataToSync)
+        .catch(error => {
+            console.error("Firebase write failed: ", error);
+            setIsFirebaseSynced(false);
+            toast({ title: "Sync Error", description: "Failed to save changes to the cloud.", variant: 'destructive'});
+        })
+        .finally(() => {
+            // After write is complete, reset the flag
+            setTimeout(() => {
+                isWritingToFirebaseRef.current = false;
+            }, 100); // Small delay to avoid race conditions
+        });
+        
   }, [debouncedActiveFiles, debouncedSnippets, debouncedSettings, debouncedActiveFileId, userId, isFirebaseSynced, isDataLoaded, toast]);
 
 
@@ -222,9 +236,9 @@ export default function Home() {
       }
     } else if (activeFile.type === 'html') {
         const jsFiles = activeFiles.filter(f => f.type === 'javascript');
-        const scriptTags = jsFiles.map(f => `<script>\n// ${f.name}\n${f.code}\n</script>`).join('\n');
+        const scriptTags = jsFiles.map(f => `<script>\\n// ${f.name}\\n${f.code}\\n</script>`).join('\\n');
         
-        const finalHtml = code.replace('</body>', `${scriptTags}\n</body>`);
+        const finalHtml = code.replace('</body>', `${scriptTags}\\n</body>`);
 
         const newWindow = window.open();
         if (newWindow) {
@@ -420,9 +434,9 @@ export default function Home() {
 
   if (!isClient || !isDataLoaded) {
     return (
-        <div className="flex h-screen w-full items-center justify-center bg-background text-foreground">
+        <div className="flex h-screen items-center justify-center">
             <div className="flex flex-col items-center gap-4">
-                <Code className="h-16 w-16 animate-pulse text-primary" />
+                <Code className="h-12 w-12 text-primary animate-pulse" />
                 <p className="text-lg text-muted-foreground">Loading Project Void...</p>
             </div>
         </div>
@@ -432,25 +446,25 @@ export default function Home() {
   const runButtonDisabled = activeFile?.type === 'javascript' && lintErrors.length > 0;
 
   return (
-    <TooltipProvider>
-    <div className="flex flex-col h-screen bg-background text-foreground font-sans">
-      <header className="flex items-center justify-between p-2 border-b border-border shadow-md z-20">
-        <div className="flex items-center gap-3">
-          <Code className="text-primary h-8 w-8" />
-          <h1 className="text-xl font-bold font-headline text-foreground">Project Void (Early Access)</h1>
+    <div className="flex flex-col h-screen bg-background text-foreground">
+      <header className="flex items-center justify-between p-2 border-b border-border shadow-md">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Code className="h-6 w-6 text-primary" />
+            <h1 className="text-xl font-semibold">Project Void (Early Access)</h1>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-           <Tooltip>
-             <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-4">
+           <TooltipProvider>
+             <Tooltip>
+                <TooltipTrigger>
                     {isFirebaseSynced ? <Cloud className="h-5 w-5 text-green-500" /> : <CloudOff className="h-5 w-5 text-red-500" />}
-                    <span>{isFirebaseSynced ? "Synced" : "Offline"}</span>
-                </div>
-             </TooltipTrigger>
-             <TooltipContent>
-                <p>{isFirebaseSynced ? "Your work is saved to the cloud." : "Could not connect to sync service."}</p>
-             </TooltipContent>
-           </Tooltip>
+                </TooltipTrigger>
+                <TooltipContent>
+                    {isFirebaseSynced ? "Your work is saved to the cloud." : "Could not connect to sync service."}
+                </TooltipContent>
+             </Tooltip>
+           </TooltipProvider>
 
            <EditorToolbar
             settings={settings}
@@ -459,92 +473,78 @@ export default function Home() {
             onSaveSnippet={handleSaveSnippet}
             onLoadSnippet={handleLoadSnippet}
             onDeleteSnippet={handleDeleteSnippet}
-            activeSnippetName={activeFile?.name}
+            activeSnippetName={activeFile?.isSaved ? activeFile.name : undefined}
           />
-          <button
-            onClick={runCode}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50"
-            disabled={runButtonDisabled}
-            title={runButtonDisabled ? "Fix lint errors to run" : "Run Code (Ctrl+Enter)"}
-          >
-            <Play size={16} />
+          <Button onClick={runCode} disabled={runButtonDisabled}>
+            <Play className="mr-2 h-4 w-4" />
             Run
-          </button>
+          </Button>
         </div>
       </header>
-      <main className="flex-grow flex flex-col overflow-hidden">
+      <div className="flex-grow flex flex-col min-h-0">
         {isClient && settings.multiFile && (
-           <div className="flex items-center border-b border-border bg-card">
+           <div className="flex border-b border-border bg-card">
             {activeFiles.map(file => (
-                <Tooltip key={file.id}>
-                    <TooltipTrigger asChild>
-                        <div 
-                            onClick={() => setActiveFileId(file.id)}
-                            onDoubleClick={() => openRenameDialog(file)}
-                            className={cn(
-                            "flex items-center gap-2 pl-4 pr-2 py-2 border-r border-border cursor-pointer text-sm",
-                            activeFileId === file.id ? "bg-background text-primary" : "text-muted-foreground hover:bg-background/50"
-                            )}
-                            title={file.name}
-                        >
-                            {file.type === 'javascript' ? <Code size={14} /> : <FileCode size={14} />}
-                            <span className="truncate max-w-32">{file.name}{!file.isSaved && '*'}</span>
-                            
-                            <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
-                                <X size={14} />
-                            </Button>
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <p>Double-click to rename</p>
-                    </TooltipContent>
-              </Tooltip>
+                <TooltipProvider key={file.id}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div
+                                onClick={() => setActiveFileId(file.id)}
+                                onDoubleClick={() => openRenameDialog(file)}
+                                className={cn(
+                                    "flex items-center gap-2 px-4 py-2 border-r border-border cursor-pointer transition-colors",
+                                    activeFileId === file.id ? "bg-background text-primary" : "hover:bg-accent/10"
+                                )}
+                            >
+                                {file.type === 'javascript' ? <FileCode className="h-4 w-4 text-yellow-500" /> : <FileCode className="h-4 w-4 text-blue-400" />}
+                                {file.name}{!file.isSaved && '*'}
+                                <Button variant="ghost" size="icon" className="h-6 w-6 ml-2" onClick={(e) => {e.stopPropagation(); handleCloseTab(file.id)}}>
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            Double-click to rename
+                        </TooltipContent>
+                    </Tooltip>
+              </TooltipProvider>
             ))}
-             <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={() => handleAddNewFile('javascript')}>
-                        <Plus size={16} />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>New JS File</p>
-                </TooltipContent>
-            </Tooltip>
-             <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleAddNewFile('html')}>
-                        <FileCode size={16} />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>New HTML File</p>
-                </TooltipContent>
-            </Tooltip>
+             <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="m-1" onClick={() => handleAddNewFile('javascript')}><Plus className="h-4 w-4" /></Button>
+                    </TooltipTrigger>
+                    <TooltipContent>New JS File</TooltipContent>
+                </Tooltip>
+             </TooltipProvider>
+             <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                         <Button variant="ghost" size="icon" className="m-1" onClick={() => handleAddNewFile('html')}><Plus className="h-4 w-4" /></Button>
+                    </TooltipTrigger>
+                    <TooltipContent>New HTML File</TooltipContent>
+                </Tooltip>
+             </TooltipProvider>
           </div>
         )}
-        <div className="flex-grow relative" style={{ height: `calc(100% - ${consoleHeight}px)`}}>
-          <CodeEditor
-            value={code}
-            onChange={setCode}
-            onRun={runCode}
-            onLint={handleLint}
-            settings={settings}
-            onSave={() => handleSaveSnippet(activeFile.name)}
-            onToggleLiveRun={() => setSettings(s => ({...s, liveRun: !s.liveRun}))}
-            fileType={activeFile?.type ?? 'javascript'}
-          />
+        <div className="flex-grow relative" style={{ height: `calc(100% - ${consoleHeight}px)` }}>
+            <CodeEditor
+                value={code}
+                onChange={setCode}
+                onRun={runCode}
+                onLint={handleLint}
+                settings={settings}
+                onSave={() => handleSaveSnippet(activeFile.name)}
+                onToggleLiveRun={() => setSettings(s => ({...s, liveRun: !s.liveRun}))}
+                fileType={activeFile.type}
+            />
         </div>
-        <div 
-          onMouseDown={handleMouseDown}
-          className="w-full h-2 bg-border cursor-row-resize hover:bg-primary/50 transition-colors z-10"
-          title="Drag to resize console"
-        />
-        <ConsolePane 
-          messages={messages} 
-          onClear={clearMessages} 
-          height={consoleHeight}
-        />
-      </main>
+        <div onMouseDown={handleMouseDown} className="cursor-row-resize h-2 bg-border hover:bg-primary transition-colors">
+        </div>
+        <div className="relative">
+          <ConsolePane messages={messages} onClear={clearMessages} height={consoleHeight} />
+        </div>
+      </div>
       <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
         <DialogContent>
             <DialogHeader>
@@ -555,9 +555,11 @@ export default function Home() {
             </DialogHeader>
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="name" className="text-right">Name</Label>
+                    <Label htmlFor="new-name" className="text-right">
+                        Name
+                    </Label>
                     <Input
-                        id="name"
+                        id="new-name"
                         value={newFileName}
                         onChange={(e) => setNewFileName(e.target.value)}
                         className="col-span-3"
@@ -567,11 +569,12 @@ export default function Home() {
                 </div>
             </div>
             <DialogFooter>
-                <Button type="submit" onClick={handleRename}>Rename</Button>
+                <Button onClick={handleRename}>Rename</Button>
             </DialogFooter>
         </DialogContent>
-    </Dialog>
+      </Dialog>
     </div>
-    </TooltipProvider>
   );
 }
+
+    
