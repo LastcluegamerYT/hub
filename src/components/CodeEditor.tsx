@@ -4,7 +4,7 @@
 import React, { useMemo, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
-import { lintGutter, linter } from "@codemirror/lint";
+import { lintGutter, linter, getDiagnostics } from "@codemirror/lint";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { eclipse } from "@uiw/codemirror-theme-eclipse";
@@ -144,7 +144,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           while (end < to && /\w/.test(text[end - from])) end++
           if (start == pos && side < 0 || end == pos && side > 0) return null
           
-          const diagnostics = linter.getDiagnostics(view.state).filter(d => d.from >= from && d.to <= to)
+          const diagnostics = getDiagnostics(view.state).filter(d => d.from >= from && d.to <= to)
           if (!diagnostics || diagnostics.length === 0) return null
           
           const hoveredDiagnostic = diagnostics.find(d => d.from <= pos && d.to >= pos)
