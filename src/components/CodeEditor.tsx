@@ -133,7 +133,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       javascript({ 
         jsx: true, 
         typescript: false,
-        completion: dynamicCompletions,
+        completion: completeFromList([
+          ...javascriptLanguage.data.of({ autocomplete: dynamicCompletions }).all,
+          ...(window as any).completionSources || []
+        ]),
       }),
       jsLinter,
       lintGutter(),
@@ -203,6 +206,16 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
     return [...commonExtensions, dynamicTheme];
   }, [settings, onRun, onSave, onToggleLiveRun, autoSemicolonKeymap]);
+
+  useEffect(() => {
+    // This is a bit of a hack to get global completions working
+    const propNames = Object.getOwnPropertyNames(window);
+    const completions = propNames.map(prop => ({
+      label: prop,
+      type: typeof (window as any)[prop] === 'function' ? 'function' : 'variable'
+    }));
+    (window as any).completionSources = completeFromList(completions);
+  }, []);
 
   return (
     <CodeMirror
