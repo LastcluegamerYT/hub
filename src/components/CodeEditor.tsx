@@ -12,8 +12,17 @@ import type { EditorSettings } from "@/types";
 import { JSHINT, type LintError } from "jshint";
 import { keymap } from "@codemirror/view";
 import { Prec } from '@codemirror/state';
-import { insertNewlineAndIndent } from '@codemirror/commands';
-import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
+import { 
+  insertNewlineAndIndent, 
+  defaultKeymap, 
+  historyKeymap, 
+  indentWithTab,
+  copyLineDown,
+  copyLineUp,
+  moveLineDown,
+  moveLineUp
+} from '@codemirror/commands';
+import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 
 interface CodeEditorProps {
   value: string;
@@ -24,7 +33,22 @@ interface CodeEditorProps {
 }
 
 const jsLinter = linter((view) => {
-  JSHINT(view.state.doc.toString(), { esversion: 6, asi: true, expr: true, globals: { console: false, alert: false, document: false, window: false } });
+  // We're adding common browser globals here so JSHint doesn't complain about them.
+  const globals = {
+    console: false,
+    alert: false,
+    document: false,
+    window: false,
+    setTimeout: false,
+    setInterval: false,
+    clearTimeout: false,
+    clearInterval: false,
+    fetch: false,
+    Promise: false,
+    localStorage: false,
+    sessionStorage: false,
+  };
+  JSHINT(view.state.doc.toString(), { esversion: 6, asi: true, expr: true, globals });
   return (JSHINT.errors || []).map((err: LintError) => ({
     from: view.state.doc.line(err.line).from + (err.character || 1) - 1,
     to: view.state.doc.line(err.line).from + (err.character || 1),
@@ -49,12 +73,13 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           const text = line.text.trim();
           
           const noSemicolonRegex = /[\w)\]'"`]$/; // Ends with word char, ), ], ', ", or `
-          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':', '>', ','];
+          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':', '>', ',', ';'];
           const isComment = text.startsWith('//') || text.startsWith('/*');
-          const isBlockOpener = /\{\s*$/.test(text); // Ends with {
+          const isBlockOpener = /\{\s*$/.test(text);
+          const isEmpty = text.length === 0;
           
-          const shouldAddSemicolon = text.length > 0 &&
-            !text.endsWith(';') &&
+          const shouldAddSemicolon = 
+            !isEmpty &&
             !isComment &&
             !isBlockOpener &&
             noSemicolonRegex.test(text) &&
@@ -64,7 +89,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
             const insertPos = line.to;
             const insert = ';';
             
-            // This transaction inserts the semicolon and then creates the new line.
+            // This transaction inserts the semicolon. We'll handle the newline separately.
             const transaction = state.update({
               changes: { from: insertPos, insert },
               selection: { anchor: pos + insert.length },
@@ -73,15 +98,15 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
             // Dispatch this change first
             dispatch(transaction);
-            
-            // Then run the default Enter command
-            return insertNewlineAndIndent(view);
-
           }
-          return false; // Let the default handler take over
+
+          // Let the default command for 'Enter' handle the newline.
+          return insertNewlineAndIndent(view);
         });
+        return true;
       }
       
+      // If auto-semicolons are off, just do the default action.
       return insertNewlineAndIndent(view);
     }
   }])), [settings.autoSemicolons]);
@@ -92,6 +117,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       javascript({ 
         jsx: true,
         typescript: false,
+        // This provides autocompletion for global browser objects
+        globals: (typeof window !== "undefined") ? Object.keys(window) : [],
       }),
       jsLinter,
       lintGutter(),
@@ -105,6 +132,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
             return true;
           },
         },
+        indentWithTab,
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...completionKeymap,
+        { key: 'Shift-Alt-ArrowDown', run: copyLineDown, preventDefault: true },
+        { key: 'Shift-Alt-ArrowUp', run: copyLineUp, preventDefault: true },
+        { key: 'Alt-ArrowDown', run: moveLineDown, preventDefault: true },
+        { key: 'Alt-ArrowUp', run: moveLineUp, preventDefault: true },
       ]),
       autocompletion(),
       closeBrackets(),
@@ -163,6 +198,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         autocompletion: true,
         bracketMatching: true,
         closeBrackets: true,
+        history: true,
+        drawSelection: true,
+        multipleSelections: true,
       }}
     />
   );
