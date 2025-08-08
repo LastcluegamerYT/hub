@@ -84,11 +84,8 @@ export default function Home() {
   const { toast } = useToast();
 
   const firebaseDataLoadedRef = useRef(false);
-  
-  // This ref helps prevent the onValue listener from firing on local changes.
   const isLocalUpdateRef = useRef(false);
-
-
+  
   useEffect(() => {
     setIsClient(true);
     if (!userId) {
@@ -110,7 +107,6 @@ export default function Home() {
   const code = activeFile?.code ?? '';
   const debouncedCode = useDebounce(code, 500);
 
-  // Function to save all data to Firebase
   const saveStateToFirebase = useCallback(() => {
     if (!userId || !isDataLoaded) return;
 
@@ -128,6 +124,7 @@ export default function Home() {
     set(userRef, dataToSync)
       .then(() => {
         setIsFirebaseSynced(true);
+        toast({ title: "Synced!", description: "Your changes have been saved to the cloud." });
       })
       .catch(error => {
           console.error("Firebase write failed: ", error);
@@ -138,20 +135,16 @@ export default function Home() {
               isLocalUpdateRef.current = false;
           }, 100); 
       });
-
   }, [userId, activeFiles, snippets, settings, activeFileId, toast, isDataLoaded]);
-  
 
-  // Firebase Integration: Load data and listen for remote changes
   useEffect(() => {
     if (!userId || !isClient) return;
-  
+
     const userRef = ref(database, `users/${userId}`);
-  
     const loadInitialData = async () => {
       if (firebaseDataLoadedRef.current) return;
       firebaseDataLoadedRef.current = true;
-
+  
       try {
         const snapshot = await get(userRef);
         if (snapshot.exists()) {
@@ -177,14 +170,13 @@ export default function Home() {
     };
   
     if (!firebaseDataLoadedRef.current) {
-        loadInitialData();
+      loadInitialData();
     }
   
     const unsubscribe = onValue(userRef, (snapshot) => {
       if (isLocalUpdateRef.current || !firebaseDataLoadedRef.current) {
         return;
       }
-      
       if (snapshot.exists()) {
         console.log("Data updated from another source.");
         const data = snapshot.val();
@@ -195,7 +187,7 @@ export default function Home() {
         toast({ title: "Data Updated", description: "Your session has been updated from another source." });
       }
     });
-  
+
     return () => unsubscribe();
   }, [userId, isClient, setSettings, toast, saveStateToFirebase]);
 
@@ -301,7 +293,6 @@ export default function Home() {
       if (activeFileId === defaultJsFileName || activeFileId === defaultHtmlFileName) {
         setActiveFileId(name);
       }
-      // Manually trigger firebase save
       saveStateToFirebase();
     }
   };
@@ -324,7 +315,7 @@ export default function Home() {
       handleCloseTab(name);
     }
     toast({ title: "Snippet Deleted", description: `Snippet "${name}" has been deleted.`, variant: "destructive" });
-    saveStateToFirebase();
+    // Note: This change won't be synced until the next save.
   };
   
   const handleCloseTab = (tabId: string) => {
@@ -395,7 +386,6 @@ export default function Home() {
       setActiveFileId(newFileId);
   };
 
-
   const handleRename = () => {
     if (!fileToRename || !newFileName) return;
     if (newFileName !== fileToRename.name && activeFiles.some(f => f.name === newFileName)) {
@@ -418,8 +408,7 @@ export default function Home() {
     setActiveFileId(newFileName);
     setIsRenameDialogOpen(false);
     setFileToRename(null);
-    toast({ title: "File Renamed", description: `Renamed to "${newFileName}".`});
-    saveStateToFirebase();
+    toast({ title: "File Renamed", description: `Renamed to "${newFileName}". Your changes will be synced on next save.`});
   };
 
   const openRenameDialog = (file: ActiveFile) => {
