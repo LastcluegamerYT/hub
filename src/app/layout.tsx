@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'CodeRunner.js',
+  title: 'Project Void (Early Access)',
   description: 'A live JavaScript editor with an integrated console and snippet management.',
 };
 

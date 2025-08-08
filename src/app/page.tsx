@@ -21,7 +21,7 @@ import { database } from "@/lib/firebase";
 import { ref, onValue, set, get } from "firebase/database";
 
 
-const defaultJsCode = `// Welcome to CodeRunner.js!
+const defaultJsCode = `// Welcome to Project Void!
 // You can write and run your JavaScript code here.
 // Try changing this message and hitting the 'Run' button.
 
@@ -44,13 +44,13 @@ const defaultHtmlCode = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeRunner Output</title>
+    <title>Project Void Output</title>
     <style>
         body { font-family: sans-serif; background-color: #282A36; color: #f8f8f2; padding: 1rem; }
     </style>
 </head>
 <body>
-    <h1>Hello from CodeRunner.js!</h1>
+    <h1>Hello from Project Void!</h1>
     <p>Your JavaScript output will appear in the browser's console (Press F12 to open).</p>
     <!-- Your open JavaScript files will be automatically included here -->
 </body>
@@ -62,16 +62,16 @@ const defaultJsFileName = "main.js";
 const defaultHtmlFileName = "index.html";
 
 export default function Home() {
-  const [userId, setUserId] = useLocalStorage<string | null>('coderunner-user-id', null);
+  const [userId, setUserId] = useLocalStorage<string | null>('void-user-id', null);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("coderunner-active-files", () => [
+  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("void-active-files", () => [
       { id: defaultHtmlFileName, name: defaultHtmlFileName, code: defaultHtmlCode, type: 'html', isSaved: true },
       { id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true }
   ]);
-  const [activeFileId, setActiveFileId] = useLocalStorage<string>("coderunner-active-file-id", defaultHtmlFileName);
-  const [snippets, setSnippets] = useLocalStorage<Snippet[]>("coderunner-snippets", []);
+  const [activeFileId, setActiveFileId] = useLocalStorage<string>("void-active-file-id", defaultHtmlFileName);
+  const [snippets, setSnippets] = useLocalStorage<Snippet[]>("void-snippets", []);
   
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [lintErrors, setLintErrors] = useState<any[]>([]);
@@ -92,7 +92,7 @@ export default function Home() {
     }
   }, [setUserId, userId]);
 
-  const [settings, setSettings] = useLocalStorage<EditorSettings>("coderunner-editor-settings", {
+  const [settings, setSettings] = useLocalStorage<EditorSettings>("void-editor-settings", {
     theme: "dark",
     fontSize: 14,
     lineHeight: 1.6,
@@ -161,7 +161,7 @@ export default function Home() {
     });
 
     return () => unsubscribe();
-  }, [userId]);
+  }, [userId, setActiveFiles, setActiveFileId, setSnippets, setSettings, toast, activeFiles, activeFileId, snippets, settings]);
 
 
   // Effect to write to Firebase
@@ -423,7 +423,7 @@ export default function Home() {
         <div className="flex h-screen w-full items-center justify-center bg-background text-foreground">
             <div className="flex flex-col items-center gap-4">
                 <Code className="h-16 w-16 animate-pulse text-primary" />
-                <p className="text-lg text-muted-foreground">Loading CodeRunner.js...</p>
+                <p className="text-lg text-muted-foreground">Loading Project Void...</p>
             </div>
         </div>
     );
@@ -437,7 +437,7 @@ export default function Home() {
       <header className="flex items-center justify-between p-2 border-b border-border shadow-md z-20">
         <div className="flex items-center gap-3">
           <Code className="text-primary h-8 w-8" />
-          <h1 className="text-xl font-bold font-headline text-foreground">CodeRunner.js</h1>
+          <h1 className="text-xl font-bold font-headline text-foreground">Project Void (Early Access)</h1>
         </div>
         <div className="flex items-center gap-2">
            <Tooltip>
@@ -575,5 +575,3 @@ export default function Home() {
     </TooltipProvider>
   );
 }
-
-    
