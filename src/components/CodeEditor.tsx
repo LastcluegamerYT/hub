@@ -99,6 +99,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         if (typeof window !== 'undefined') {
             const windowOptions = Object.getOwnPropertyNames(clientGlobals)
                 .filter(p => {
+                    if(p === 'onerror' || p === 'onunhandledrejection') return false;
                     try {
                         return typeof clientGlobals[p as any] === 'function' || typeof clientGlobals[p as any] === 'object'
                     } catch {
@@ -121,14 +122,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
     });
 
     let languageExtension;
-    let linterExtension = [];
+    let linterExtensions: any[] = [];
     if (fileType === 'javascript') {
         languageExtension = javascript({ 
             jsx: false, 
             typescript: false, 
             extraExtensions: [customAutocomplete]
         });
-        linterExtension = [jsLinter, lintGutter(), hoverTooltip(jsLinter)];
+        linterExtensions = [jsLinter, lintGutter(), hoverTooltip(jsLinter)];
     } else if (fileType === 'html') {
         languageExtension = html({
              matchClosingTags: true,
@@ -138,7 +139,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
     const commonExtensions = [
       languageExtension,
-      ...linterExtension,
+      ...linterExtensions,
       EditorView.lineWrapping,
       keymap.of([
         { key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { onRun(); return true; }},
@@ -156,7 +157,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       autocompletion(),
       closeBrackets(),
       Prec.high(keymap.of(defaultKeymap)),
-    ];
+    ].filter(Boolean);
 
     const dynamicTheme = EditorView.theme({
       '&': { fontSize: `${settings.fontSize}px`, fontFamily: `var(--font-code)`},
@@ -188,7 +189,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
        }
     });
 
-    return [...commonExtensions, dynamicTheme].filter(Boolean);
+    return [...commonExtensions, dynamicTheme];
   }, [settings, onRun, onSave, onToggleLiveRun, value, fileType]);
 
   return (
