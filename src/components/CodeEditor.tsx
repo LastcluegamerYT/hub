@@ -4,7 +4,7 @@
 import React, { useMemo, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
-import { lintGutter, linter, getDiagnostics } from "@codemirror/lint";
+import { lintGutter, linter } from "@codemirror/lint";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { eclipse } from "@uiw/codemirror-theme-eclipse";
@@ -21,7 +21,7 @@ import {
   moveLineDown,
   moveLineUp
 } from '@codemirror/commands';
-import { autocompletion, closeBrackets, completionKeymap, ifIn, completeFromList } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets, completionKeymap, ifIn, completeFromList, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 
 interface CodeEditorProps {
@@ -49,7 +49,7 @@ const jsLinter = linter((view) => {
   }));
 });
 
-const dynamicCompletions = (context: any) => {
+const dynamicCompletions = (context: CompletionContext): CompletionResult | null => {
     let tree = syntaxTree(context.state);
     let word = context.matchBefore(/\w*/);
     if (!word || (word.from === word.to && !context.explicit)) return null;
@@ -90,81 +90,66 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
   const autoSemicolonKeymap = useMemo(() => Prec.high(keymap.of([{
     key: 'Enter',
     run: (view) => {
-      if (settings.autoSemicolons) {
-        const { state, dispatch } = view;
-        const changes = state.changeByRange(range => {
-          const pos = range.head;
-          const line = state.doc.lineAt(pos);
-          const text = line.text.trim();
+      const { state, dispatch } = view;
+      const changes = state.changeByRange(range => {
+        const pos = range.head;
+        const line = state.doc.lineAt(pos);
+        let text = line.text.trim();
+        
+        // Strip comments from the end of the line
+        const commentMatch = text.match(/\s*\/\//);
+        if (commentMatch) {
+            text = text.substring(0, commentMatch.index).trim();
+        }
+
+        const noSemicolonRegex = /[\w)\]'"`]$/;
+        const noSemicolonBlockEndings = ['{', '(', '[', ',', ';', ':', '=>'];
+        const isBlockOpener = /\{\s*$/.test(text);
+        const isEmpty = text.length === 0;
+
+        const shouldAddSemicolon = 
+          !isEmpty && !isBlockOpener &&
+          noSemicolonRegex.test(text) &&
+          !noSemicolonBlockEndings.some(ending => text.endsWith(ending));
+
+        if (shouldAddSemicolon) {
+          const insertPos = line.to;
           
-          const noSemicolonRegex = /[\w)\]'"`]$/;
-          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':', '>', ',', ';'];
-          const isComment = text.startsWith('//') || text.startsWith('/*');
-          const isBlockOpener = /\{\s*$/.test(text);
-          const isEmpty = text.length === 0;
-          
-          const shouldAddSemicolon = 
-            !isEmpty && !isComment && !isBlockOpener &&
-            noSemicolonRegex.test(text) &&
-            !noSemicolonBlockEndings.some(ending => text.endsWith(ending));
-          
-          if (shouldAddSemicolon) {
-            const insertPos = line.to;
-            const insert = ';';
-            
-            const transaction = state.update({
-              changes: { from: insertPos, insert },
-              selection: { anchor: pos },
-              userEvent: 'input.complete'
-            });
-            dispatch(transaction);
-          }
-          return {range: state.selection.ranges[0]};
-        });
-        return insertNewlineAndIndent(view);
-      }
+          dispatch({
+            changes: { from: insertPos, insert: ';' },
+            selection: { anchor: pos },
+            userEvent: 'input.complete'
+          });
+        }
+        return {range};
+      });
+
       return insertNewlineAndIndent(view);
     }
   }])), [settings.autoSemicolons]);
 
 
   const extensions = useMemo(() => {
+    const customCompletions = javascriptLanguage.data.of({
+        autocomplete: dynamicCompletions,
+    });
+    
+    const globalCompletions = javascriptLanguage.data.of({
+        autocomplete: (context: CompletionContext) => {
+            return (window as any).completionSources?.(context);
+        }
+    });
+
     const commonExtensions = [
       javascript({ 
         jsx: true, 
         typescript: false,
-        completion: completeFromList([
-          ...javascriptLanguage.data.of({ autocomplete: dynamicCompletions }).all,
-          ...(window as any).completionSources || []
-        ]),
       }),
+      customCompletions,
+      globalCompletions,
       jsLinter,
       lintGutter(),
-      hoverTooltip((view, pos, side) => {
-          const {from, to, text} = view.state.doc.lineAt(pos)
-          let start = pos, end = pos
-          while (start > from && /\w/.test(text[start - from - 1])) start--
-          while (end < to && /\w/.test(text[end - from])) end++
-          if (start == pos && side < 0 || end == pos && side > 0) return null
-          
-          const diagnostics = getDiagnostics(view.state).filter(d => d.from >= from && d.to <= to)
-          if (!diagnostics || diagnostics.length === 0) return null
-          
-          const hoveredDiagnostic = diagnostics.find(d => d.from <= pos && d.to >= pos)
-          if(!hoveredDiagnostic) return null;
-
-          return {
-              pos: hoveredDiagnostic.from,
-              end: hoveredDiagnostic.to,
-              above: true,
-              create() {
-                  let dom = document.createElement("div")
-                  dom.className = "cm-tooltip-lint"
-                  dom.textContent = hoveredDiagnostic.message
-                  return {dom}
-              }
-          }
-      }, {hideOnChange: true}),
+      hoverTooltip(linter(jsLinter), {hideOnChange: true}),
       EditorView.lineWrapping,
       keymap.of([
         { key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { onRun(); return true; }},
@@ -181,8 +166,12 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       ]),
       autocompletion(),
       closeBrackets(),
-      autoSemicolonKeymap,
+      Prec.high(keymap.of(defaultKeymap)), // Enables multi-cursor
     ];
+
+    if (settings.autoSemicolons) {
+      commonExtensions.push(autoSemicolonKeymap);
+    }
 
     const dynamicTheme = EditorView.theme({
       '&': { fontSize: `${settings.fontSize}px`, fontFamily: `var(--font-code)`},
@@ -209,12 +198,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 
   useEffect(() => {
     // This is a bit of a hack to get global completions working
-    const propNames = Object.getOwnPropertyNames(window);
-    const completions = propNames.map(prop => ({
-      label: prop,
-      type: typeof (window as any)[prop] === 'function' ? 'function' : 'variable'
-    }));
-    (window as any).completionSources = completeFromList(completions);
+    if (typeof window !== 'undefined') {
+        const propNames = Object.getOwnPropertyNames(window);
+        const completions = propNames.map(prop => ({
+          label: prop,
+          type: typeof (window as any)[prop] === 'function' ? 'function' : 'variable'
+        }));
+        (window as any).completionSources = completeFromList(completions);
+    }
   }, []);
 
   return (
@@ -227,8 +218,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       style={{ height: "100%", overflow: "auto" }}
       basicSetup={{
         lineNumbers: true, foldGutter: true, highlightActiveLine: true,
-        highlightActiveLineGutter: true, autocompletion: true,
-        bracketMatching: true, closeBrackets: true, history: true,
+        highlightActiveLineGutter: true, autocompletion: false, // handled by extensions
+        bracketMatching: true, closeBrackets: false, // handled by extensions
+        history: true,
         drawSelection: true, multipleSelections: true,
       }}
     />
