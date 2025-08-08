@@ -34,10 +34,14 @@ const ConsolePane: React.FC<ConsolePaneProps> = ({ messages, onClear, height }) 
   }, [messages]);
 
   const formatMessage = (msg: any) => {
-    if (typeof msg === 'object' && msg !== null) {
+    if (msg === null) return 'null';
+    if (msg === undefined) return 'undefined';
+    if (typeof msg === 'object') {
       try {
+        // Pretty print objects, indent with 2 spaces
         return JSON.stringify(msg, null, 2);
       } catch {
+        // Handle circular references or other serialization errors
         return '[unserializable object]';
       }
     }

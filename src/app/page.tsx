@@ -10,6 +10,8 @@ import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
 import { JSHINT } from "jshint";
+import { useToast } from "@/hooks/use-toast";
+
 
 const defaultCode = `// Welcome to CodeRunner.js!
 // You can write and run your JavaScript code here.
@@ -36,6 +38,7 @@ export default function Home() {
   const [lintErrors, setLintErrors] = useState<any[]>([]);
   const [consoleHeight, setConsoleHeight] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
+  const { toast } = useToast();
 
   const [settings, setSettings] = useLocalStorage<EditorSettings>("editor-settings", {
     theme: "dark",
@@ -64,17 +67,22 @@ export default function Home() {
   const runCode = useCallback(() => {
     if (lintErrors.length > 0) {
       addMessage("error", "Cannot run code with linting errors. Please fix them first.");
+      toast({
+        title: "Linting Error",
+        description: "Cannot run code with linting errors. Please fix them first.",
+        variant: "destructive"
+      });
       return;
     }
     clearMessages();
     try {
       // eslint-disable-next-line no-new-func
-      const func = new Function(code);
-      func();
+      const func = new Function('console', code);
+      func(window.console);
     } catch (error: any) {
       addMessage("error", error.toString());
     }
-  }, [code, lintErrors, addMessage, clearMessages]);
+  }, [code, lintErrors, addMessage, clearMessages, toast]);
 
   useEffect(() => {
     const originalConsole = { ...window.console };
@@ -110,6 +118,9 @@ export default function Home() {
   }, [debouncedCode, settings.liveRun, runCode]);
 
   const handleLint = useCallback((editorCode: string) => {
+    // The 'esversion: 6' option enables support for ES6 syntax.
+    // 'asi: true' allows for automatic semicolon insertion (prevents some lint errors).
+    // 'expr: true' allows expressions where statements are expected.
     JSHINT(editorCode, { esversion: 6, asi: true, expr: true });
     setLintErrors(JSHINT.errors || []);
   }, []);
@@ -117,22 +128,29 @@ export default function Home() {
   const handleSaveSnippet = (name: string) => {
     if (name && !snippets.find((s) => s.name === name)) {
       setSnippets([...snippets, { name, code }]);
+      toast({ title: "Snippet Saved", description: `Snippet "${name}" has been saved.`});
     } else if (name) {
       // Overwrite existing snippet
       setSnippets(snippets.map(s => s.name === name ? { name, code } : s));
+      toast({ title: "Snippet Overwritten", description: `Snippet "${name}" has been updated.`});
     }
   };
 
   const handleLoadSnippet = (name: string) => {
     const snippet = snippets.find((s) => s.name === name);
-    if (snippet) setCode(snippet.code);
+    if (snippet) {
+      setCode(snippet.code);
+      toast({ title: "Snippet Loaded", description: `Loaded snippet "${name}".`});
+    }
   };
 
   const handleDeleteSnippet = (name: string) => {
     setSnippets(snippets.filter((s) => s.name !== name));
+    toast({ title: "Snippet Deleted", description: `Snippet "${name}" has been deleted.`, variant: "destructive" });
   };
   
-  const handleMouseDown = useCallback(() => {
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
     setIsResizing(true);
   }, []);
 
@@ -151,12 +169,12 @@ export default function Home() {
 
   useEffect(() => {
     if(isResizing) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
     }
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     }
   }, [isResizing, handleMouseMove, handleMouseUp])
 

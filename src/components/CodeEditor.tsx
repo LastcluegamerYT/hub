@@ -12,7 +12,7 @@ import type { EditorSettings } from "@/types";
 import { JSHINT, type LintError } from "jshint";
 import { keymap } from "@codemirror/view";
 import { Prec } from '@codemirror/state';
-import { insertNewlineAndIndent, insertNewline } from '@codemirror/commands';
+import { insertNewlineAndIndent } from '@codemirror/commands';
 import { closeBrackets } from "@codemirror/autocomplete";
 
 interface CodeEditorProps {
@@ -43,33 +43,37 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
     run: (view) => {
       if (settings.autoSemicolons) {
         const { state, dispatch } = view;
-        const pos = state.selection.main.head;
-        const line = state.doc.lineAt(pos);
-        const text = line.text.trim();
-        
-        const shouldAddSemicolon = text.length > 0 &&
-          !text.endsWith(';') &&
-          !text.endsWith('{') &&
-          !text.endsWith('}') &&
-          !text.endsWith('(') &&
-          !text.endsWith(')') &&
-          !text.endsWith('[') &&
-          !text.endsWith(']') &&
-          !text.startsWith('//') &&
-          !text.startsWith('/*') &&
-          !text.endsWith(':') &&
-          !text.endsWith('=>');
+        const changes = state.changeByRange(range => {
+          const pos = range.head;
+          const line = state.doc.lineAt(pos);
+          const text = line.text.trim();
+          
+          const noSemicolonRegex = /[\w)\]'"`]$/; // Ends with word char, ), ], ', ", or `
+          const noSemicolonBlockEndings = ['{', '(', '[', '=>', ':'];
+          const isComment = text.startsWith('//') || text.startsWith('/*');
 
-        if (shouldAddSemicolon) {
-           const transaction = state.update({
-            changes: { from: line.to, insert: ';' },
-            selection: { anchor: line.to + 1 }, // move cursor after semicolon
-          });
-          dispatch(transaction);
+          const shouldAddSemicolon = text.length > 0 &&
+            !text.endsWith(';') &&
+            !isComment &&
+            noSemicolonRegex.test(text) &&
+            !noSemicolonBlockEndings.some(ending => text.endsWith(ending));
+          
+          if (shouldAddSemicolon) {
+            const insertPos = line.to;
+            return {
+              changes: { from: insertPos, insert: ';' },
+              range: range, // keep original range for now
+            };
+          }
+          return { range };
+        });
+
+        if (changes.changes.length > 0) {
+          dispatch(changes);
         }
       }
-      // Always run insertNewline, but after semicolon logic if enabled
-      return insertNewline(view);
+      
+      return insertNewlineAndIndent(view);
     }
   }])), [settings.autoSemicolons]);
 
@@ -90,8 +94,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           },
         },
       ]),
-      autoSemicolonKeymap,
       closeBrackets(),
+      autoSemicolonKeymap,
     ];
 
     const dynamicTheme = EditorView.theme({
@@ -111,11 +115,20 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       '.cm-cursor': {
         borderLeftWidth: settings.cursorStyle === 'bar' ? '2px' : '0',
         textDecoration: settings.cursorStyle === 'underline' ? 'underline' : 'none',
-        backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background)' : 'transparent',
       },
       '&.cm-focused .cm-cursor': {
-        borderLeftColor: 'var(--cm-active-line-background)'
+        borderLeftColor: settings.theme === 'dark' ? '#f8f8f2' : '#000000',
       },
+      '.cm-selectionBackground, & .cm-selectionBackground': {
+         backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background) !important' : 'default',
+      },
+       '&.cm-focused .cm-selectionBackground': {
+        backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background) !important' : 'default',
+       },
+       '.cm-cursor-primary': {
+         backgroundColor: settings.cursorStyle === 'block' ? 'var(--cm-selection-background)' : 'transparent',
+         color: settings.cursorStyle === 'block' ? '#fff' : 'default',
+       },
     });
 
     return [...commonExtensions, dynamicTheme];
