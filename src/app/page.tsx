@@ -162,7 +162,6 @@ export default function Home() {
           if (data.snippets) setSnippets(data.snippets);
           if (data.settings) setSettings(data.settings);
           toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
-          isLocalUpdateRef.current = false;
         } else {
            // New user or no data, push initial local state to Firebase
            saveStateToFirebase();
@@ -173,6 +172,7 @@ export default function Home() {
       } finally {
         setIsDataLoaded(true);
         setIsFirebaseSynced(true);
+        setTimeout(() => { isLocalUpdateRef.current = false; }, 100);
       }
     };
   
