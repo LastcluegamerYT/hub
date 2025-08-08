@@ -88,7 +88,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           }
         });
 
-        // Combine with standard JS globals, only on client
         const clientGlobals = typeof window !== 'undefined' ? window : {};
         const allGlobals = { ...userCodeGlobals, ...clientGlobals };
 
@@ -127,7 +126,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         languageExtension = javascript({ 
             jsx: false, 
             typescript: false, 
-            all: customAutocomplete 
+            extraExtensions: [customAutocomplete]
         });
         linterExtension = [jsLinter, lintGutter(), hoverTooltip(jsLinter)];
     } else if (fileType === 'html') {
@@ -157,7 +156,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       autocompletion(),
       closeBrackets(),
       Prec.high(keymap.of(defaultKeymap)),
-      EditorView.multipleSelections()
     ];
 
     const dynamicTheme = EditorView.theme({
@@ -213,5 +211,3 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 };
 
 export default CodeEditor;
-
-    
