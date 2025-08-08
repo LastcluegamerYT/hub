@@ -15,7 +15,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent
 } from "./ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -120,10 +120,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 <Switch id="live-run" checked={settings.liveRun} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, liveRun: checked }))} />
               </div>
               <div className="flex items-center justify-between">
-                <Label htmlFor="auto-semicolon" className="flex-grow">Auto Semicolons</Label>
-                <Switch id="auto-semicolon" checked={settings.autoSemicolons} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, autoSemicolons: checked }))} />
-              </div>
-              <div className="flex items-center justify-between">
                 <Label htmlFor="multi-file" className="flex-grow">Multi-File Tabs</Label>
                 <Switch id="multi-file" checked={settings.multiFile} onCheckedChange={(checked) => onSettingsChange(s => ({ ...s, multiFile: checked }))} />
               </div>
@@ -164,6 +160,9 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Save Snippet</DialogTitle>
+                <DialogDescription>
+                    Provide a name for your snippet. If a snippet with the same name already exists, it will be overwritten.
+                </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">

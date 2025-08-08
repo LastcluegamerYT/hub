@@ -13,7 +13,7 @@ import { JSHINT } from "jshint";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -367,6 +367,9 @@ export default function Home() {
         <DialogContent>
             <DialogHeader>
                 <DialogTitle>Rename File</DialogTitle>
+                <DialogDescription>
+                    Enter a new name for the file. If this file is a saved snippet, the snippet will be renamed as well.
+                </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">

@@ -12,7 +12,6 @@ import type { EditorSettings } from "@/types";
 import { JSHINT, type LintError } from "jshint";
 import { Prec } from '@codemirror/state';
 import { 
-  insertNewlineAndIndent, 
   defaultKeymap, 
   historyKeymap, 
   indentWithTab,
@@ -23,6 +22,11 @@ import {
 } from '@codemirror/commands';
 import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
+import {
+  autocompletion as jsAutocompletion,
+  completionPath,
+  ifNotIn,
+} from '@codemirror/autocomplete';
 
 interface CodeEditorProps {
   value: string;
@@ -54,59 +58,20 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
     onLint(value);
   }, [value, onLint]);
 
-  const autoSemicolonKeymap = useMemo(() => Prec.high(keymap.of([{
-    key: 'Enter',
-    run: (view) => {
-      const { state, dispatch } = view;
-      const changes = state.changeByRange(range => {
-        const pos = range.head;
-        const line = state.doc.lineAt(pos);
-        let text = line.text.trim();
-        
-        const commentMatch = text.match(/\s*\/\//);
-        if (commentMatch) {
-            text = text.substring(0, commentMatch.index).trim();
-        }
-
-        const noSemicolonRegex = /[\w)\]'"`]$/;
-        const noSemicolonBlockEndings = ['{', '(', '[', ',', ';', ':', '=>'];
-        const isBlockOpener = /\{\s*$/.test(text);
-        const isEmpty = text.length === 0;
-
-        const shouldAddSemicolon = 
-          !isEmpty && !isBlockOpener &&
-          noSemicolonRegex.test(text) &&
-          !noSemicolonBlockEndings.some(ending => text.endsWith(ending));
-
-        if (shouldAddSemicolon) {
-          const insertPos = line.to;
-          
-          dispatch({
-            changes: { from: insertPos, insert: ';' },
-            selection: { anchor: pos },
-            userEvent: 'input.complete'
-          });
-        }
-        return {range};
-      });
-
-      return insertNewlineAndIndent(view);
-    }
-  }])), [settings.autoSemicolons]);
-
-
   const extensions = useMemo(() => {
+    const customAutocomplete = javascriptLanguage.data.of({
+      autocomplete: scopeCompletionSource(javascriptLanguage.scope),
+    });
+
     const commonExtensions = [
       javascript({ 
         jsx: true, 
         typescript: false,
-        autocomplete: [
-            scopeCompletionSource(javascriptLanguage.scope),
-        ],
       }),
+      customAutocomplete,
       jsLinter,
       lintGutter(),
-      hoverTooltip(jsLinter, {hideOnChange: true}),
+      hoverTooltip(jsLinter),
       EditorView.lineWrapping,
       keymap.of([
         { key: "Ctrl-Enter", mac: "Cmd-Enter", run: () => { onRun(); return true; }},
@@ -125,10 +90,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       closeBrackets(),
       Prec.high(keymap.of(defaultKeymap)),
     ];
-
-    if (settings.autoSemicolons) {
-      commonExtensions.push(autoSemicolonKeymap);
-    }
 
     const dynamicTheme = EditorView.theme({
       '&': { fontSize: `${settings.fontSize}px`, fontFamily: `var(--font-code)`},
@@ -163,7 +124,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
     });
 
     return [...commonExtensions, dynamicTheme];
-  }, [settings, onRun, onSave, onToggleLiveRun, autoSemicolonKeymap]);
+  }, [settings, onRun, onSave, onToggleLiveRun]);
 
   return (
     <CodeMirror
@@ -176,7 +137,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
       basicSetup={{
         lineNumbers: true, foldGutter: true, highlightActiveLine: true,
         highlightActiveLineGutter: true, autocompletion: false,
-        bracketMatching: true, closeBrackets: false,
+        bracketMatching: true, closeBrackets: true,
         history: true,
         drawSelection: true, multipleSelections: true,
       }}
