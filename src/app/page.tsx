@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { Snippet, ConsoleMessage, EditorSettings, ActiveFile } from "@/types";
-import { Code, Play, Save, Trash2, X } from "lucide-react";
+import { Code, Play, Save, Trash2, X, Plus, FilePenLine } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
@@ -13,6 +13,11 @@ import { JSHINT } from "jshint";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 const defaultCode = `// Welcome to CodeRunner.js!
 // You can write and run your JavaScript code here.
@@ -32,7 +37,7 @@ console.log(greet('Developer'));
 // undeclaredVariable = true; // This will cause a linting error and a runtime error.
 `;
 
-const defaultFileName = "scratchpad.js";
+const defaultFileName = "main.js";
 
 export default function Home() {
   const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", [{ id: defaultFileName, name: defaultFileName, code: defaultCode, isSaved: true }]);
@@ -44,6 +49,10 @@ export default function Home() {
   const [isResizing, setIsResizing] = useState(false);
   const { toast } = useToast();
   const [isClient, setIsClient] = useState(false);
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [fileToRename, setFileToRename] = useState<ActiveFile | null>(null);
+  const [newFileName, setNewFileName] = useState("");
+
 
   useEffect(() => {
     setIsClient(true);
@@ -204,6 +213,57 @@ export default function Home() {
     }
   }, [isResizing]);
 
+  const handleAddNewFile = () => {
+    const newFileId = `new-file-${Date.now()}.js`;
+    let newFileName = "untitled.js";
+    let counter = 1;
+    while(activeFiles.some(f => f.name === newFileName)) {
+      newFileName = `untitled-${counter}.js`;
+      counter++;
+    }
+
+    const newFile: ActiveFile = {
+      id: newFileId,
+      name: newFileName,
+      code: `// ${newFileName}`,
+      isSaved: false
+    };
+
+    setActiveFiles([...activeFiles, newFile]);
+    setActiveFileId(newFileId);
+  };
+
+  const handleRename = () => {
+    if (!fileToRename || !newFileName) return;
+    if (newFileName !== fileToRename.name && activeFiles.some(f => f.name === newFileName)) {
+      toast({
+        title: "Rename Failed",
+        description: "A file with that name already exists.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Also update snippet name if it exists
+    const snippetExists = snippets.some(s => s.name === fileToRename.name);
+    if (snippetExists) {
+        const newSnippets = snippets.map(s => s.name === fileToRename.name ? {...s, name: newFileName} : s);
+        setSnippets(newSnippets);
+    }
+
+    setActiveFiles(files => files.map(f => f.id === fileToRename.id ? { ...f, name: newFileName, id: newFileName, isSaved: snippetExists } : f));
+    setActiveFileId(newFileName);
+    setIsRenameDialogOpen(false);
+    setFileToRename(null);
+    toast({ title: "File Renamed", description: `Renamed to "${newFileName}".`});
+  };
+
+  const openRenameDialog = (file: ActiveFile) => {
+    setFileToRename(file);
+    setNewFileName(file.name);
+    setIsRenameDialogOpen(true);
+  };
+
   useEffect(() => {
     if(isResizing) {
       document.addEventListener("mousemove", handleMouseMove);
@@ -220,6 +280,7 @@ export default function Home() {
   }
 
   return (
+    <TooltipProvider>
     <div className="flex flex-col h-screen bg-background text-foreground font-sans">
       <header className="flex items-center justify-between p-2 border-b border-border shadow-md z-20">
         <div className="flex items-center gap-3">
@@ -249,24 +310,35 @@ export default function Home() {
       </header>
       <main className="flex-grow flex flex-col overflow-hidden">
         {settings.multiFile && (
-           <div className="flex border-b border-border bg-card">
+           <div className="flex items-center border-b border-border bg-card">
             {activeFiles.map(file => (
               <div 
                 key={file.id}
                 onClick={() => setActiveFileId(file.id)}
+                onDoubleClick={() => openRenameDialog(file)}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 border-r border-border cursor-pointer text-sm",
+                  "flex items-center gap-2 pl-4 pr-2 py-2 border-r border-border cursor-pointer text-sm",
                   activeFileId === file.id ? "bg-background text-primary" : "text-muted-foreground hover:bg-background/50"
                 )}
+                title={file.name}
               >
-                <span>{file.name}{!file.isSaved && '*'}</span>
-                {activeFiles.length > 1 && (
-                  <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
+                <span className="truncate max-w-32">{file.name}{!file.isSaved && '*'}</span>
+                
+                <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
                     <X size={14} />
-                  </Button>
-                )}
+                </Button>
               </div>
             ))}
+             <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={handleAddNewFile}>
+                        <Plus size={16} />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                    <p>New File</p>
+                </TooltipContent>
+            </Tooltip>
           </div>
         )}
         <div className="flex-grow relative" style={{ height: `calc(100% - ${consoleHeight}px)`}}>
@@ -291,6 +363,30 @@ export default function Home() {
           height={consoleHeight}
         />
       </main>
+      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Rename File</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">Name</Label>
+                    <Input
+                        id="name"
+                        value={newFileName}
+                        onChange={(e) => setNewFileName(e.target.value)}
+                        className="col-span-3"
+                        placeholder="Enter new file name"
+                        onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                    />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button type="submit" onClick={handleRename}>Rename</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
