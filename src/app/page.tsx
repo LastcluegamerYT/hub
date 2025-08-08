@@ -64,7 +64,7 @@ const defaultHtmlFileName = "index.html";
 export default function Home() {
   const [userId, setUserId] = useLocalStorage<string | null>('coderunner-user-id', null);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState(false);
-  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(isFirebaseSynced);
 
   const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", () => [
       { id: defaultHtmlFileName, name: defaultHtmlFileName, code: defaultHtmlCode, type: 'html', isSaved: true },
@@ -104,6 +104,7 @@ export default function Home() {
 
   const activeFile = activeFiles.find(f => f.id === activeFileId) || activeFiles[0];
   const code = activeFile?.code ?? '';
+  const debouncedCode = useDebounce(code, 500);
 
   const debouncedActiveFiles = useDebounce(activeFiles, 1000);
   const debouncedSnippets = useDebounce(snippets, 1000);
@@ -565,3 +566,5 @@ export default function Home() {
     </TooltipProvider>
   );
 }
+
+    
