@@ -95,21 +95,26 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         }));
         
         if (typeof window !== 'undefined') {
-            const clientGlobals = window;
-            const windowOptions = Object.getOwnPropertyNames(clientGlobals)
-                .filter(p => {
-                    if(p === 'onerror' || p === 'onunhandledrejection') return false;
-                    try {
-                        return typeof (clientGlobals as any)[p] === 'function' || typeof (clientGlobals as any)[p] === 'object'
-                    } catch {
-                        return false
-                    }
-                })
-                .map(key => ({
-                    label: key,
-                    type: typeof (clientGlobals as any)[key] === 'function' ? 'function' : 'variable'
-                }));
-            options = [...options, ...windowOptions];
+            const clientGlobals = window as any;
+            try {
+                const windowOptions = Object.getOwnPropertyNames(clientGlobals)
+                    .filter(p => {
+                        if (p === 'onerror' || p === 'onunhandledrejection') return false;
+                        try {
+                            const prop = clientGlobals[p];
+                            return typeof prop === 'function' || typeof prop === 'object';
+                        } catch {
+                            return false
+                        }
+                    })
+                    .map(key => ({
+                        label: key,
+                        type: typeof clientGlobals[key] === 'function' ? 'function' : 'variable'
+                    }));
+                options = [...options, ...windowOptions];
+            } catch (e) {
+                // Silently ignore errors from accessing window properties
+            }
         }
 
 
@@ -131,7 +136,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         linterExtensions = [
           jsLinter, 
           lintGutter(),
-          hoverTooltip(jsLinter)
+          hoverTooltip(linter(jsLinter))
         ];
     } else if (fileType === 'html') {
         languageExtension = html({
@@ -216,5 +221,3 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 };
 
 export default CodeEditor;
-
-    
