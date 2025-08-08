@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import type { Snippet, ConsoleMessage, EditorSettings, ActiveFile } from "@/types";
-import { Code, Play, Save, Trash2, X, Plus, FilePenLine, FileCode, Cloud, CloudOff } from "lucide-react";
+import { Code, Play, FileCode, Cloud, CloudOff, Plus, X } from "lucide-react";
 import CodeEditor from "@/components/CodeEditor";
 import ConsolePane from "@/components/ConsolePane";
 import EditorToolbar from "@/components/EditorToolbar";
@@ -64,14 +64,14 @@ const defaultHtmlFileName = "index.html";
 export default function Home() {
   const [userId, setUserId] = useLocalStorage<string | null>('coderunner-user-id', null);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState(false);
-  const [isDataLoaded, setIsDataLoaded] = useState(isFirebaseSynced);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("active-files", () => [
+  const [activeFiles, setActiveFiles] = useLocalStorage<ActiveFile[]>("coderunner-active-files", () => [
       { id: defaultHtmlFileName, name: defaultHtmlFileName, code: defaultHtmlCode, type: 'html', isSaved: true },
       { id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true }
   ]);
-  const [activeFileId, setActiveFileId] = useLocalStorage<string>("active-file-id", defaultHtmlFileName);
-  const [snippets, setSnippets] = useLocalStorage<Snippet[]>("snippets", []);
+  const [activeFileId, setActiveFileId] = useLocalStorage<string>("coderunner-active-file-id", defaultHtmlFileName);
+  const [snippets, setSnippets] = useLocalStorage<Snippet[]>("coderunner-snippets", []);
   
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [lintErrors, setLintErrors] = useState<any[]>([]);
@@ -90,9 +90,9 @@ export default function Home() {
     if (!userId) {
       setUserId(`user-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
     }
-  }, []);
+  }, [setUserId, userId]);
 
-  const [settings, setSettings] = useLocalStorage<EditorSettings>("editor-settings", {
+  const [settings, setSettings] = useLocalStorage<EditorSettings>("coderunner-editor-settings", {
     theme: "dark",
     fontSize: 14,
     lineHeight: 1.6,
@@ -114,51 +114,53 @@ export default function Home() {
 
   // Firebase Integration
   useEffect(() => {
-    if (userId) {
-      const userRef = ref(database, `users/${userId}`);
+    if (!userId) {
+        setIsDataLoaded(true); // No user ID, so we consider data "loaded" from local
+        return;
+    };
+    
+    const userRef = ref(database, `users/${userId}`);
 
-      const loadDataFromFirebase = async () => {
+    const loadDataFromFirebase = async () => {
         try {
-          const snapshot = await get(userRef);
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            if (data.activeFiles) setActiveFiles(data.activeFiles);
-            if (data.activeFileId) setActiveFileId(data.activeFileId);
-            if (data.snippets) setSnippets(data.snippets);
-            if (data.settings) setSettings(data.settings);
-            toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
-          } else {
-             // New user, push initial local storage state to Firebase
-             set(userRef, {
-                activeFiles,
-                activeFileId,
-                snippets,
-                settings
-             });
-          }
+            const snapshot = await get(userRef);
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                if (data.activeFiles) setActiveFiles(data.activeFiles);
+                if (data.activeFileId) setActiveFileId(data.activeFileId);
+                if (data.snippets) setSnippets(data.snippets);
+                if (data.settings) setSettings(data.settings);
+                toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
+            } else {
+                // New user, push initial local storage state to Firebase
+                set(userRef, {
+                    activeFiles,
+                    activeFileId,
+                    snippets,
+                    settings
+                });
+            }
         } catch (error) {
-          console.error("Firebase read failed:", error);
-          toast({ title: "Sync Error", description: "Could not load data from the cloud.", variant: 'destructive'});
+            console.error("Firebase read failed:", error);
+            toast({ title: "Sync Error", description: "Could not load data from the cloud.", variant: 'destructive'});
         } finally {
             setIsDataLoaded(true);
             setIsFirebaseSynced(true);
         }
-      };
+    };
 
-      loadDataFromFirebase();
+    loadDataFromFirebase();
       
-      const unsubscribe = onValue(userRef, (snapshot) => {
+    const unsubscribe = onValue(userRef, (snapshot) => {
         if (snapshot.exists() && dataInitializedRef.current) {
-            // Data updated from another client, we can reflect changes here if needed
-            // For now, we mainly focus on pushing changes out.
+            // Data updated from another client. For a simple sync, we can just log this.
+            // A more complex app might merge changes here.
+            console.log("Data updated from another source.");
         }
         dataInitializedRef.current = true;
-      });
+    });
 
-      return () => unsubscribe();
-    } else {
-        setIsDataLoaded(true); // No user ID, so we consider data "loaded" from local
-    }
+    return () => unsubscribe();
   }, [userId]);
 
 
@@ -174,10 +176,11 @@ export default function Home() {
       };
       set(userRef, dataToSync).catch(error => {
           console.error("Firebase write failed: ", error);
+          setIsFirebaseSynced(false); // Indicate sync failure
           toast({ title: "Sync Error", description: "Failed to save changes to the cloud.", variant: 'destructive'});
       });
     }
-  }, [debouncedActiveFiles, debouncedSnippets, debouncedSettings, debouncedActiveFileId, userId, isFirebaseSynced, isDataLoaded]);
+  }, [debouncedActiveFiles, debouncedSnippets, debouncedSettings, debouncedActiveFileId, userId, isFirebaseSynced, isDataLoaded, toast]);
 
 
   const setCode = (newCode: string) => {
@@ -312,9 +315,9 @@ export default function Home() {
        }
     }
 
-    const newFiles = activeFiles.filter(f => f.id !== tabId);
+    let newFiles = activeFiles.filter(f => f.id !== tabId);
     if (newFiles.length === 0) {
-       newFiles.push({ id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true });
+       newFiles = [{ id: defaultJsFileName, name: defaultJsFileName, code: defaultJsCode, type: 'javascript', isSaved: true }];
     }
 
     if (activeFileId === tabId) {
@@ -470,26 +473,32 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-grow flex flex-col overflow-hidden">
-        {settings.multiFile && isClient && (
+        {isClient && settings.multiFile && (
            <div className="flex items-center border-b border-border bg-card">
             {activeFiles.map(file => (
-              <div 
-                key={file.id}
-                onClick={() => setActiveFileId(file.id)}
-                onDoubleClick={() => openRenameDialog(file)}
-                className={cn(
-                  "flex items-center gap-2 pl-4 pr-2 py-2 border-r border-border cursor-pointer text-sm",
-                  activeFileId === file.id ? "bg-background text-primary" : "text-muted-foreground hover:bg-background/50"
-                )}
-                title={file.name}
-              >
-                {file.type === 'javascript' ? <Code size={14} /> : <FileCode size={14} />}
-                <span className="truncate max-w-32">{file.name}{!file.isSaved && '*'}</span>
-                
-                <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
-                    <X size={14} />
-                </Button>
-              </div>
+                <Tooltip key={file.id}>
+                    <TooltipTrigger asChild>
+                        <div 
+                            onClick={() => setActiveFileId(file.id)}
+                            onDoubleClick={() => openRenameDialog(file)}
+                            className={cn(
+                            "flex items-center gap-2 pl-4 pr-2 py-2 border-r border-border cursor-pointer text-sm",
+                            activeFileId === file.id ? "bg-background text-primary" : "text-muted-foreground hover:bg-background/50"
+                            )}
+                            title={file.name}
+                        >
+                            {file.type === 'javascript' ? <Code size={14} /> : <FileCode size={14} />}
+                            <span className="truncate max-w-32">{file.name}{!file.isSaved && '*'}</span>
+                            
+                            <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full" onClick={(e) => { e.stopPropagation(); handleCloseTab(file.id); }}>
+                                <X size={14} />
+                            </Button>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>Double-click to rename</p>
+                    </TooltipContent>
+              </Tooltip>
             ))}
              <Tooltip>
                 <TooltipTrigger asChild>

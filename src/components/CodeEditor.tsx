@@ -5,8 +5,8 @@ import React, { useMemo, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
 import { html } from "@codemirror/lang-html";
-import { lintGutter, linter } from "@codemirror/lint";
-import { EditorView, keymap } from "@codemirror/view";
+import { lintGutter, linter, lintKeymap } from "@codemirror/lint";
+import { EditorView, keymap, hoverTooltip } from "@codemirror/view";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { eclipse } from "@uiw/codemirror-theme-eclipse";
 import type { EditorSettings, ActiveFile } from "@/types";
@@ -36,6 +36,7 @@ interface CodeEditorProps {
 }
 
 const jsLinter = linter((view) => {
+  if (typeof window === 'undefined') return [];
   const globals = {
     console: false, alert: false, document: false, window: false,
     setTimeout: false, setInterval: false, clearTimeout: false, clearInterval: false,
@@ -88,27 +89,25 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
           }
         });
 
-        const clientGlobals = typeof window !== 'undefined' ? window : {};
-        const allGlobals = { ...userCodeGlobals, ...clientGlobals };
-
         let options = Object.keys(userCodeGlobals).map(key => ({
             label: key,
             type: userCodeGlobals[key] as 'variable' | 'function'
         }));
-
+        
         if (typeof window !== 'undefined') {
+            const clientGlobals = window;
             const windowOptions = Object.getOwnPropertyNames(clientGlobals)
                 .filter(p => {
                     if(p === 'onerror' || p === 'onunhandledrejection') return false;
                     try {
-                        return typeof clientGlobals[p as any] === 'function' || typeof clientGlobals[p as any] === 'object'
+                        return typeof (clientGlobals as any)[p] === 'function' || typeof (clientGlobals as any)[p] === 'object'
                     } catch {
                         return false
                     }
                 })
                 .map(key => ({
                     label: key,
-                    type: typeof clientGlobals[key as any] === 'function' ? 'function' : 'variable'
+                    type: typeof (clientGlobals as any)[key] === 'function' ? 'function' : 'variable'
                 }));
             options = [...options, ...windowOptions];
         }
@@ -129,7 +128,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
             typescript: false, 
             extraExtensions: [customAutocomplete]
         });
-        linterExtensions = [jsLinter, lintGutter()];
+        linterExtensions = [
+          jsLinter, 
+          lintGutter(),
+          hoverTooltip(jsLinter)
+        ];
     } else if (fileType === 'html') {
         languageExtension = html({
              matchClosingTags: true,
@@ -149,6 +152,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
         ...defaultKeymap,
         ...historyKeymap,
         ...completionKeymap,
+        ...lintKeymap,
         { key: 'Shift-Alt-ArrowDown', run: copyLineDown, preventDefault: true },
         { key: 'Shift-Alt-ArrowUp', run: copyLineUp, preventDefault: true },
         { key: 'Alt-ArrowDown', run: moveLineDown, preventDefault: true },
@@ -212,3 +216,5 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, onRun, onLint,
 };
 
 export default CodeEditor;
+
+    

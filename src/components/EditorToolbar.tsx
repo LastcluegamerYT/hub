@@ -21,7 +21,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
-import { Save, Settings, Trash2, Check, ChevronsUpDown } from "lucide-react";
+import { Save, Settings, ChevronsUpDown } from "lucide-react";
 
 interface EditorToolbarProps {
   settings: EditorSettings;
@@ -61,6 +61,8 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
       onDeleteSnippet(name);
     }
   }
+
+  const isExistingSnippet = snippets.some(s => s.name === snippetName);
 
   return (
     <TooltipProvider>
@@ -175,11 +177,8 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   placeholder="e.g., 'My Awesome Function'"
                 />
               </div>
-              {snippets.some(s => s.name === snippetName && s.name !== activeSnippetName) && (
-                <p className="text-sm text-yellow-500 col-span-4 text-center">A snippet with this name already exists. Saving will create a new one.</p>
-              )}
-               {snippets.some(s => s.name === snippetName && s.name === activeSnippetName) && (
-                <p className="text-sm text-yellow-500 col-span-4 text-center">This will overwrite the existing snippet.</p>
+              {isExistingSnippet && (
+                <p className="text-sm text-yellow-500 col-span-4 text-center">A snippet with this name already exists. Saving will overwrite it.</p>
               )}
             </div>
             <DialogFooter>
@@ -193,3 +192,5 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
 };
 
 export default EditorToolbar;
+
+    
