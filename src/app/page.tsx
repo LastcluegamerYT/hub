@@ -84,7 +84,10 @@ export default function Home() {
   const { toast } = useToast();
 
   const firebaseDataLoadedRef = useRef(false);
-  const isWritingToFirebaseRef = useRef(false);
+  
+  // This ref helps prevent the onValue listener from firing on local changes.
+  const isLocalUpdateRef = useRef(false);
+
 
   useEffect(() => {
     setIsClient(true);
@@ -107,10 +110,37 @@ export default function Home() {
   const code = activeFile?.code ?? '';
   const debouncedCode = useDebounce(code, 500);
 
-  const debouncedActiveFiles = useDebounce(activeFiles, 1000);
-  const debouncedSnippets = useDebounce(snippets, 1000);
-  const debouncedSettings = useDebounce(settings, 1000);
-  const debouncedActiveFileId = useDebounce(activeFileId, 1000);
+  // Function to save all data to Firebase
+  const saveStateToFirebase = useCallback(() => {
+    if (!userId || !isDataLoaded) return;
+
+    isLocalUpdateRef.current = true;
+    setIsFirebaseSynced(false);
+
+    const userRef = ref(database, `users/${userId}`);
+    const dataToSync = {
+      activeFiles,
+      snippets,
+      settings,
+      activeFileId,
+    };
+    
+    set(userRef, dataToSync)
+      .then(() => {
+        setIsFirebaseSynced(true);
+      })
+      .catch(error => {
+          console.error("Firebase write failed: ", error);
+          toast({ title: "Sync Error", description: "Failed to save changes to the cloud.", variant: 'destructive'});
+      })
+      .finally(() => {
+          setTimeout(() => {
+              isLocalUpdateRef.current = false;
+          }, 100); 
+      });
+
+  }, [userId, activeFiles, snippets, settings, activeFileId, toast, isDataLoaded]);
+  
 
   // Firebase Integration: Load data and listen for remote changes
   useEffect(() => {
@@ -119,21 +149,23 @@ export default function Home() {
     const userRef = ref(database, `users/${userId}`);
   
     const loadInitialData = async () => {
+      if (firebaseDataLoadedRef.current) return;
+      firebaseDataLoadedRef.current = true;
+
       try {
         const snapshot = await get(userRef);
         if (snapshot.exists()) {
           const data = snapshot.val();
-          // Set state from Firebase only if it hasn't been loaded before
-          if (!firebaseDataLoadedRef.current) {
-            if (data.activeFiles) setActiveFiles(data.activeFiles);
-            if (data.activeFileId) setActiveFileId(data.activeFileId);
-            if (data.snippets) setSnippets(data.snippets);
-            if (data.settings) setSettings(data.settings);
-            toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
-          }
+          isLocalUpdateRef.current = true;
+          if (data.activeFiles) setActiveFiles(data.activeFiles);
+          if (data.activeFileId) setActiveFileId(data.activeFileId);
+          if (data.snippets) setSnippets(data.snippets);
+          if (data.settings) setSettings(data.settings);
+          toast({ title: "Data Synced", description: "Your data has been loaded from the cloud." });
+          isLocalUpdateRef.current = false;
         } else {
            // New user or no data, push initial local state to Firebase
-           set(userRef, { activeFiles, activeFileId, snippets, settings });
+           saveStateToFirebase();
         }
       } catch (error) {
         console.error("Firebase read failed:", error);
@@ -141,7 +173,6 @@ export default function Home() {
       } finally {
         setIsDataLoaded(true);
         setIsFirebaseSynced(true);
-        firebaseDataLoadedRef.current = true;
       }
     };
   
@@ -150,51 +181,23 @@ export default function Home() {
     }
   
     const unsubscribe = onValue(userRef, (snapshot) => {
-      // If a write operation is in progress, ignore the incoming snapshot to prevent loops
-      if (isWritingToFirebaseRef.current) {
+      if (isLocalUpdateRef.current || !firebaseDataLoadedRef.current) {
         return;
       }
       
-      if (snapshot.exists() && firebaseDataLoadedRef.current) {
+      if (snapshot.exists()) {
         console.log("Data updated from another source.");
         const data = snapshot.val();
         if (data.activeFiles) setActiveFiles(data.activeFiles);
         if (data.activeFileId) setActiveFileId(data.activeFileId);
         if (data.snippets) setSnippets(data.snippets);
         if (data.settings) setSettings(data.settings);
+        toast({ title: "Data Updated", description: "Your session has been updated from another source." });
       }
     });
   
     return () => unsubscribe();
-  }, [userId, isClient, setSettings, toast, activeFiles, activeFileId, snippets, settings]);
-
-  // Effect to write to Firebase on debounced changes
-  useEffect(() => {
-      if (!userId || !isFirebaseSynced || !isDataLoaded) return;
-  
-      isWritingToFirebaseRef.current = true;
-      const userRef = ref(database, `users/${userId}`);
-      const dataToSync = {
-        activeFiles: debouncedActiveFiles,
-        snippets: debouncedSnippets,
-        settings: debouncedSettings,
-        activeFileId: debouncedActiveFileId,
-      };
-      
-      set(userRef, dataToSync)
-        .catch(error => {
-            console.error("Firebase write failed: ", error);
-            setIsFirebaseSynced(false);
-            toast({ title: "Sync Error", description: "Failed to save changes to the cloud.", variant: 'destructive'});
-        })
-        .finally(() => {
-            // After write is complete, reset the flag
-            setTimeout(() => {
-                isWritingToFirebaseRef.current = false;
-            }, 100); // Small delay to avoid race conditions
-        });
-        
-  }, [debouncedActiveFiles, debouncedSnippets, debouncedSettings, debouncedActiveFileId, userId, isFirebaseSynced, isDataLoaded, toast]);
+  }, [userId, isClient, setSettings, toast, saveStateToFirebase]);
 
 
   const setCode = (newCode: string) => {
@@ -298,6 +301,8 @@ export default function Home() {
       if (activeFileId === defaultJsFileName || activeFileId === defaultHtmlFileName) {
         setActiveFileId(name);
       }
+      // Manually trigger firebase save
+      saveStateToFirebase();
     }
   };
   
@@ -319,6 +324,7 @@ export default function Home() {
       handleCloseTab(name);
     }
     toast({ title: "Snippet Deleted", description: `Snippet "${name}" has been deleted.`, variant: "destructive" });
+    saveStateToFirebase();
   };
   
   const handleCloseTab = (tabId: string) => {
@@ -413,6 +419,7 @@ export default function Home() {
     setIsRenameDialogOpen(false);
     setFileToRename(null);
     toast({ title: "File Renamed", description: `Renamed to "${newFileName}".`});
+    saveStateToFirebase();
   };
 
   const openRenameDialog = (file: ActiveFile) => {
